@@ -15,13 +15,6 @@ A Node.js backend proxy that serves as a bridge between your Expo app and OBS St
 npm install
 ```
 
-2. Create a `.env` file in the root directory with the following variables:
-```env
-PORT=3000
-OBS_WS_HOST=ws://127.0.0.1:4455
-OBS_WS_PASSWORD=your_password_here
-```
-
 3. Start the development server:
 ```bash
 npm run dev

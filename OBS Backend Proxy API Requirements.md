@@ -23,7 +23,7 @@ This Node.js backend will serve as a proxy between your Expo app and OBS Studio,
 
 - **Endpoint:** `POST /connect`
 - **Request Body:**
-    - `host` (string, required) - OBS WebSocket host (e.g., `ws://127.0.0.1:4455`)
+    - `host` (string, required) - OBS WebSocket host (e.g., `ws://127.0.0.1:4456`)
     - `password` (string, required) - OBS WebSocket password
 - **Response:**
     - Success/failure message

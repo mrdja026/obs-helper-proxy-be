@@ -6,7 +6,7 @@ const { setupWebSocket } = require('./services/websocket');
 const apiRoutes = require('./routes/api');
 const errorHandler = require('./middleware/errorHandler');
 const requestLogger = require('./middleware/requestLogger');
-const { limiter, securityHeaders } = require('./middleware/security');
+const { securityHeaders } = require('./middleware/security');
 const logger = require('./utils/logger');
 const config = require('./config/config');
 
@@ -14,7 +14,6 @@ const app = express();
 
 // Security middleware
 app.use(securityHeaders);
-app.use(limiter);
 
 // Basic middleware
 app.use(cors(config.cors));
