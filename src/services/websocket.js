@@ -1,97 +1,373 @@
 const WebSocket = require('ws');
 const logger = require('../utils/logger');
-const obsConnection = require('./obsConnection');
+const config = require('../config/config');
+
+// Conditionally require the appropriate connection service
+const obsConnection = config.mockMode
+    ? require('./obsConnectionMock')
+    : require('./obsConnection');
 
 class WebSocketService {
     constructor() {
         this.wss = null;
-        this.clients = new Set();
+        this.clients = new Map(); // Using Map to store client metadata
+        this.heartbeatInterval = null;
+        this.stats = {
+            totalConnections: 0,
+            activeConnections: 0,
+            messagesSent: 0,
+            messagesReceived: 0,
+            errors: 0,
+            lastActivity: null
+        };
     }
 
     setup(server) {
-        this.wss = new WebSocket.Server({ server });
+        this.wss = new WebSocket.Server({
+            server,
+            perMessageDeflate: false // Disable compression for better performance
+        });
 
-        this.wss.on('connection', (ws) => {
-            this.handleConnection(ws);
+        this.wss.on('connection', (ws, req) => {
+            this.handleConnection(ws, req);
         });
 
         // Set up OBS event handlers
         this.setupOBSEventHandlers();
 
-        logger.info('WebSocket server is running');
+        // Start heartbeat
+        this.startHeartbeat();
+
+        logger.info(`WebSocket server is running in ${config.mockMode ? 'Mock' : 'Normal'} mode`, {
+            port: server.address().port,
+            heartbeatInterval: config.websocket.heartbeatInterval
+        });
     }
 
-    handleConnection(ws) {
-        this.clients.add(ws);
-        logger.info(`New WebSocket client connected. Total clients: ${this.clients.size}`);
+    handleConnection(ws, req) {
+        const clientId = this.generateClientId();
+        const clientInfo = {
+            id: clientId,
+            ws: ws,
+            ip: req.socket.remoteAddress,
+            userAgent: req.headers['user-agent'],
+            connectedAt: new Date().toISOString(),
+            lastPing: new Date().toISOString(),
+            messageCount: 0
+        };
+
+        this.clients.set(clientId, clientInfo);
+        this.stats.totalConnections++;
+        this.stats.activeConnections++;
+        this.stats.lastActivity = new Date().toISOString();
+
+        logger.info(`New WebSocket client connected`, {
+            clientId,
+            ip: clientInfo.ip,
+            totalClients: this.clients.size
+        });
 
         // Send initial connection status
-        this.sendToClient(ws, {
+        this.sendToClient(clientId, {
             type: 'connectionStatus',
             data: {
-                connected: obsConnection.isConnected()
+                connected: obsConnection.isConnected(),
+                mockMode: config.mockMode,
+                clientId: clientId,
+                serverTime: new Date().toISOString()
             }
         });
 
-        ws.on('close', () => {
-            this.clients.delete(ws);
-            logger.info(`WebSocket client disconnected. Total clients: ${this.clients.size}`);
+        ws.on('close', (code, reason) => {
+            this.handleDisconnection(clientId, code, reason);
         });
 
         ws.on('error', (error) => {
-            logger.error('WebSocket client error:', error);
-            this.clients.delete(ws);
+            this.handleError(clientId, error);
         });
+
+        ws.on('message', (data) => {
+            this.handleMessage(clientId, data);
+        });
+
+        ws.on('pong', () => {
+            this.handlePong(clientId);
+        });
+    }
+
+    generateClientId() {
+        return 'client_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+    }
+
+    handleDisconnection(clientId, code, reason) {
+        const clientInfo = this.clients.get(clientId);
+        if (clientInfo) {
+            this.clients.delete(clientId);
+            this.stats.activeConnections--;
+            this.stats.lastActivity = new Date().toISOString();
+
+            logger.info(`WebSocket client disconnected`, {
+                clientId,
+                code,
+                reason: reason.toString(),
+                duration: Date.now() - new Date(clientInfo.connectedAt).getTime(),
+                totalClients: this.clients.size
+            });
+        }
+    }
+
+    handleError(clientId, error) {
+        this.stats.errors++;
+        logger.error(`WebSocket client error`, {
+            clientId,
+            error: error.message,
+            stack: error.stack
+        });
+    }
+
+    handleMessage(clientId, data) {
+        const clientInfo = this.clients.get(clientId);
+        if (!clientInfo) return;
+
+        try {
+            clientInfo.messageCount++;
+            this.stats.messagesReceived++;
+            this.stats.lastActivity = new Date().toISOString();
+
+            const message = JSON.parse(data.toString());
+            
+            if (config.logging.enableWebSocketLogs) {
+                logger.debug(`WebSocket message received`, {
+                    clientId,
+                    type: message.type,
+                    messageCount: clientInfo.messageCount
+                });
+            }
+
+            // Handle different message types
+            switch (message.type) {
+                case 'ping':
+                    this.sendToClient(clientId, {
+                        type: 'pong',
+                        data: {
+                            timestamp: new Date().toISOString()
+                        }
+                    });
+                    break;
+                case 'getStatus':
+                    this.sendToClient(clientId, {
+                        type: 'statusResponse',
+                        data: {
+                            connected: obsConnection.isConnected(),
+                            mockMode: config.mockMode,
+                            serverStats: this.stats
+                        }
+                    });
+                    break;
+                default:
+                    logger.warn(`Unknown message type`, {
+                        clientId,
+                        messageType: message.type
+                    });
+            }
+        } catch (error) {
+            logger.error(`Error parsing WebSocket message`, {
+                clientId,
+                error: error.message,
+                data: data.toString()
+            });
+        }
+    }
+
+    handlePong(clientId) {
+        const clientInfo = this.clients.get(clientId);
+        if (clientInfo) {
+            clientInfo.lastPing = new Date().toISOString();
+        }
+    }
+
+    startHeartbeat() {
+        if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
+        }
+
+        this.heartbeatInterval = setInterval(() => {
+            this.clients.forEach((clientInfo, clientId) => {
+                if (clientInfo.ws.readyState === WebSocket.OPEN) {
+                    clientInfo.ws.ping();
+                } else {
+                    // Remove dead connections
+                    this.clients.delete(clientId);
+                    this.stats.activeConnections--;
+                }
+            });
+        }, config.websocket.heartbeatInterval);
     }
 
     setupOBSEventHandlers() {
         // Handle scene changes
         obsConnection.addEventHandler('sceneChanged', (data) => {
-            this.broadcast({
+            const message = {
                 type: 'sceneChanged',
                 data: {
                     sceneName: data.sceneName,
+                    previousSceneName: data.previousSceneName,
+                    sceneIndex: data.sceneIndex,
+                    previousSceneIndex: data.previousSceneIndex,
                     timestamp: new Date().toISOString()
                 }
+            };
+
+            this.broadcast(message);
+            
+            logger.info(`Scene change event broadcasted`, {
+                sceneName: data.sceneName,
+                previousSceneName: data.previousSceneName,
+                clientCount: this.clients.size
             });
         });
 
         // Handle connection status changes
         obsConnection.addEventHandler('connectionStatus', (data) => {
-            this.broadcast({
+            const message = {
                 type: 'obsConnectionStatus',
                 data: {
                     connected: data.connected,
+                    host: data.host,
+                    mockMode: config.mockMode,
                     timestamp: new Date().toISOString()
                 }
+            };
+
+            this.broadcast(message);
+            
+            logger.info(`OBS connection status broadcasted`, {
+                connected: data.connected,
+                host: data.host,
+                clientCount: this.clients.size
             });
         });
 
         // Handle errors
         obsConnection.addEventHandler('error', (error) => {
-            this.broadcast({
+            const message = {
                 type: 'obsError',
                 data: {
                     message: error.message,
+                    name: error.name,
                     timestamp: new Date().toISOString()
                 }
+            };
+
+            this.broadcast(message);
+            
+            logger.error(`OBS error broadcasted`, {
+                error: error.message,
+                clientCount: this.clients.size
             });
         });
     }
 
-    broadcast(message) {
+    broadcast(message, excludeClientId = null) {
         const messageStr = JSON.stringify(message);
-        this.clients.forEach((client) => {
-            if (client.readyState === WebSocket.OPEN) {
-                client.send(messageStr);
+        let sentCount = 0;
+
+        this.clients.forEach((clientInfo, clientId) => {
+            if (clientInfo.ws.readyState === WebSocket.OPEN && clientId !== excludeClientId) {
+                try {
+                    clientInfo.ws.send(messageStr);
+                    sentCount++;
+                    clientInfo.messageCount++;
+                } catch (error) {
+                    logger.error(`Error sending message to client`, {
+                        clientId,
+                        error: error.message
+                    });
+                    // Remove problematic client
+                    this.clients.delete(clientId);
+                    this.stats.activeConnections--;
+                }
             }
         });
+
+        this.stats.messagesSent += sentCount;
+        this.stats.lastActivity = new Date().toISOString();
+
+        if (config.logging.enableWebSocketLogs) {
+            logger.debug(`Message broadcasted`, {
+                messageType: message.type,
+                sentCount,
+                totalClients: this.clients.size
+            });
+        }
     }
 
-    sendToClient(client, message) {
-        if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify(message));
+    sendToClient(clientId, message) {
+        const clientInfo = this.clients.get(clientId);
+        if (!clientInfo) {
+            logger.warn(`Attempted to send message to non-existent client`, { clientId });
+            return false;
         }
+
+        if (clientInfo.ws.readyState === WebSocket.OPEN) {
+            try {
+                const messageStr = JSON.stringify(message);
+                clientInfo.ws.send(messageStr);
+                clientInfo.messageCount++;
+                this.stats.messagesSent++;
+                this.stats.lastActivity = new Date().toISOString();
+                return true;
+            } catch (error) {
+                logger.error(`Error sending message to client`, {
+                    clientId,
+                    error: error.message
+                });
+                // Remove problematic client
+                this.clients.delete(clientId);
+                this.stats.activeConnections--;
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    getStats() {
+        return {
+            ...this.stats,
+            activeConnections: this.clients.size,
+            clients: Array.from(this.clients.values()).map(client => ({
+                id: client.id,
+                ip: client.ip,
+                connectedAt: client.connectedAt,
+                messageCount: client.messageCount,
+                lastPing: client.lastPing
+            }))
+        };
+    }
+
+    shutdown() {
+        if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
+            this.heartbeatInterval = null;
+        }
+
+        // Close all connections
+        this.clients.forEach((clientInfo, clientId) => {
+            try {
+                clientInfo.ws.close(1001, 'Server shutdown');
+            } catch (error) {
+                logger.error(`Error closing client connection`, {
+                    clientId,
+                    error: error.message
+                });
+            }
+        });
+
+        this.clients.clear();
+        this.stats.activeConnections = 0;
+
+        logger.info('WebSocket service shutdown complete');
     }
 }
 
