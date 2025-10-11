@@ -13,4 +13,7 @@ router.get('/health', (req, res) => {
 // OBS routes
 router.use('/obs', require('./obs'));
 
-module.exports = router; 
+// Twitch routes
+router.use('/twitch', require('./twitch'));
+
+module.exports = router;
