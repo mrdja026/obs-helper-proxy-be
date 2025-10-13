@@ -23,6 +23,27 @@ module.exports = {
     maxReconnectAttempts: process.env.WS_MAX_RECONNECT_ATTEMPTS || 5,
     reconnectInterval: process.env.WS_RECONNECT_INTERVAL || 3000,
   },
+  twitch: {
+    clientId: process.env.TWITCH_CLIENT_ID,
+    clientSecret: process.env.TWITCH_CLIENT_SECRET,
+    callbackUrl:
+      process.env.TWITCH_CALLBACK_URL ||
+      "http://localhost:3001/api/twitch/auth/callback",
+    scopes: ["user:read:email", "chat:read", "chat:edit"],
+    tokenStorage: {
+      method: process.env.TWITCH_TOKEN_STORAGE_METHOD || "file", // "session", "file", or "hybrid"
+      filePath: process.env.TWITCH_TOKEN_FILE_PATH || "twitch-tokens.json",
+    },
+    chat: {
+      connectionType: process.env.TWITCH_CHAT_TYPE || "broadcaster", // "broadcaster" or "bot"
+      botUsername: process.env.TWITCH_BOT_USERNAME,
+      botOAuthToken: process.env.TWITCH_BOT_OAUTH_TOKEN,
+      channelName: process.env.TWITCH_CHANNEL_NAME,
+      reconnectAttempts: process.env.TWITCH_CHAT_RECONNECT_ATTEMPTS || 5,
+      reconnectDelay: process.env.TWITCH_CHAT_RECONNECT_DELAY || 2000,
+      enableLogging: process.env.TWITCH_CHAT_ENABLE_LOGGING !== "false",
+    },
+  },
   logging: {
     level: process.env.LOG_LEVEL || "info",
     enableWebSocketLogs: process.env.WS_ENABLE_LOGS !== "false",

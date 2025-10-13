@@ -57,22 +57,38 @@ app.use(errorHandler);
 // Start server
 const server = app.listen(config.port, () => {
   logger.info(`Server is running on port ${config.port}`);
-});
 
-// Setup WebSocket
-setupWebSocket(server);
+  // Setup WebSocket after server is fully started
+  try {
+    setupWebSocket(server);
+  } catch (error) {
+    logger.error("Failed to setup WebSocket", {
+      cause: error,
+      errorMessage: error.message,
+      errorStack: error.stack,
+    });
+  }
+});
 
 // Handle uncaught exceptions
 process.on("uncaughtException", (err) => {
-  logger.error("UNCAUGHT EXCEPTION! 💥 Shutting down...");
-  logger.error(err.name, err.message);
+  logger.error("UNCAUGHT EXCEPTION! 💥 Shutting down...", {
+    cause: err,
+    errorName: err.name,
+    errorMessage: err.message,
+    errorStack: err.stack,
+  });
   process.exit(1);
 });
 
 // Handle unhandled promise rejections
 process.on("unhandledRejection", (err) => {
-  logger.error("UNHANDLED REJECTION! 💥 Shutting down...");
-  logger.error(err.name, err.message);
+  logger.error("UNHANDLED REJECTION! 💥 Shutting down...", {
+    cause: err,
+    errorName: err.name,
+    errorMessage: err.message,
+    errorStack: err.stack,
+  });
   server.close(() => {
     process.exit(1);
   });

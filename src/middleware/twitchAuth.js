@@ -1,6 +1,8 @@
 const passport = require("passport");
 const OAuth2Strategy = require("passport-oauth2").Strategy;
 const logger = require("../utils/logger");
+const TokenService = require("../services/tokenService");
+const config = require("../config/config");
 
 // Configure Twitch OAuth2 Strategy (Helix)
 passport.use(
@@ -14,7 +16,7 @@ passport.use(
       callbackURL:
         process.env.TWITCH_CALLBACK_URL ||
         "http://localhost:3001/api/twitch/auth/callback",
-      scope: ["user:read:email"], // Adjust scopes as needed
+      scope: config.twitch.scopes, // Use scopes from config
       state: true, // Enable CSRF protection via state parameter
     },
     async (accessToken, refreshToken, profile, done) => {
@@ -85,6 +87,16 @@ passport.use(
             normalizedProfile.displayName +
             ")"
         );
+
+        // Store tokens in the profile for session storage
+        normalizedProfile.tokens = {
+          accessToken,
+          refreshToken,
+          expiresIn: 3600, // Default expiration, will be updated by token service
+          scope: config.twitch.scopes,
+          tokenType: "bearer",
+        };
+
         return done(null, normalizedProfile);
       } catch (error) {
         logger.error("Error in Twitch authentication:", error);
