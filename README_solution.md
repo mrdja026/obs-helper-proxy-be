@@ -15,7 +15,7 @@ Before implementing any of the following phases, you must:
    - Go to [Twitch Developer Console](https://dev.twitch.tv/console)
    - Create a new application
    - Obtain Client ID and Client Secret
-   - Set OAuth Redirect URI (e.g., `http://localhost:3000/api/twitch/auth/callback`)
+   - Set OAuth Redirect URI (e.g., `http://localhost:3001/api/twitch/auth/callback`)
    - Generate a Webhook Secret for EventSub
 
 2. **Client-Side Authentication Page**:
@@ -244,7 +244,7 @@ Add to `.env` file:
 ```
 TWITCH_CLIENT_ID=your_twitch_client_id
 TWITCH_CLIENT_SECRET=your_twitch_client_secret
-TWITCH_REDIRECT_URI=http://localhost:3000/api/twitch/auth/callback
+TWITCH_REDIRECT_URI=http://localhost:3001/api/twitch/auth/callback
 TWITCH_WEBHOOK_SECRET=your_webhook_secret
 ```
 

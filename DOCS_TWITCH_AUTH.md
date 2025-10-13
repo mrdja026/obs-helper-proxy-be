@@ -15,7 +15,7 @@ Add the following environment variables to your `.env` file:
 ```env
 TWITCH_CLIENT_ID=your_twitch_client_id_here
 TWITCH_CLIENT_SECRET=your_twitch_client_secret_here
-TWITCH_CALLBACK_URL=http://localhost:3000/api/twitch/auth/callback
+TWITCH_CALLBACK_URL=http://localhost:3001/api/twitch/auth/callback
 ```
 
 ### 2. API Endpoints
@@ -57,19 +57,19 @@ Routes that require authentication:
 ### Initiating Authentication
 
 ```bash
-curl http://localhost:3000/api/twitch/auth
+curl http://localhost:3001/api/twitch/auth
 ```
 
 ### Checking Authentication Status
 
 ```bash
-curl http://localhost:3000/api/twitch/status
+curl http://localhost:3001/api/twitch/status
 ```
 
 ### Getting User Profile (Authenticated)
 
 ```bash
-curl http://localhost:3000/api/twitch/profile
+curl http://localhost:3001/api/twitch/profile
 ```
 
 ## Error Handling
@@ -94,6 +94,6 @@ To test the implementation:
 
 1. Start the server with `npm run dev`
 2. Add your Twitch client credentials to `.env`
-3. Visit `http://localhost:3000/api/twitch/auth` to initiate authentication
+3. Visit `http://localhost:3001/api/twitch/auth` to initiate authentication
 4. Complete the OAuth flow
-5. Verify authentication status with `http://localhost:3000/api/twitch/status`
+5. Verify authentication status with `http://localhost:3001/api/twitch/status`
