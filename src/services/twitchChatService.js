@@ -258,25 +258,28 @@ class TwitchChatService {
       }
 
       // Send message
-      let sentMessage;
       if (messageRequest.replyToMessageId) {
-        sentMessage = await this.chatClient.reply(
+        await this.chatClient.reply(
           messageRequest.channel,
           messageRequest.message,
           messageRequest.replyToMessageId
         );
       } else {
-        sentMessage = await this.chatClient.say(
+        await this.chatClient.say(
           messageRequest.channel,
           messageRequest.message
         );
       }
 
       response.success = true;
-      response.messageId = sentMessage.id;
+      const generatedMessageId =
+        messageRequest.replyToMessageId ||
+        `sent-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+      response.messageId = generatedMessageId;
+      response.timestamp = new Date().toISOString();
 
-      logger.info("✅ Message sent to chat", {
-        messageId: sentMessage.id,
+      logger.info("Chat message sent", {
+        messageId: generatedMessageId,
         channel: messageRequest.channel,
         message: messageRequest.message,
         messageLength: messageRequest.message.length,
@@ -371,40 +374,25 @@ class TwitchChatService {
       });
     });
 
-    // Handle connection errors
-    this.chatClient.onAuthFail((error) => {
-      logger.error("🔴 Chat authentication failed", {
-        error: error.message,
+    // Handle authentication failures (Twurple v7)
+    this.chatClient.onAuthenticationFailure((text, retryCount) => {
+      const errorMessage = text || "Authentication failed";
+
+      logger.error("Chat authentication failed", {
+        error: errorMessage,
+        retryCount,
         channel: channelName,
         username: user.username,
         connectionType: connectionType,
       });
 
+      this.isConnected = false;
       this.connectionStatus.connected = false;
-      this.connectionStatus.error = error.message;
+      this.connectionStatus.error = errorMessage;
       this.connectionStatus.lastDisconnected = new Date().toISOString();
 
       this.emitEvent(ChatEventTypes.CONNECTION_STATUS, this.connectionStatus);
-      this.emitEvent(ChatEventTypes.ERROR, { message: error.message });
-
-      // Attempt reconnection
-      this.attemptReconnect();
-    });
-
-    this.chatClient.onConnectionError((error) => {
-      logger.error("🔴 Chat connection error", {
-        error: error.message,
-        channel: channelName,
-        username: user.username,
-        connectionType: connectionType,
-      });
-
-      this.connectionStatus.connected = false;
-      this.connectionStatus.error = error.message;
-      this.connectionStatus.lastDisconnected = new Date().toISOString();
-
-      this.emitEvent(ChatEventTypes.CONNECTION_STATUS, this.connectionStatus);
-      this.emitEvent(ChatEventTypes.ERROR, { message: error.message });
+      this.emitEvent(ChatEventTypes.ERROR, { message: errorMessage });
 
       // Attempt reconnection
       this.attemptReconnect();
