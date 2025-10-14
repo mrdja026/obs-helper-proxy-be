@@ -63,8 +63,9 @@ class ChatMessage {
     }
 
     const emotes = [];
-    if (twurpleMessage.emotes) {
+    if (twurpleMessage?.emotes) {
       twurpleMessage.emotes.forEach((emote) => {
+        if (!emote) return;
         emotes.push({
           id: emote.id,
           name: emote.name,
@@ -76,8 +77,10 @@ class ChatMessage {
     }
 
     const badges = [];
-    if (twurpleMessage.userInfo.badges) {
-      twurpleMessage.userInfo.badges.forEach((badge) => {
+    const userInfo = twurpleMessage?.userInfo;
+    if (userInfo?.badges) {
+      userInfo.badges.forEach((badge) => {
+        if (!badge) return;
         badges.push({
           id: badge.id,
           version: badge.version,
@@ -85,24 +88,81 @@ class ChatMessage {
       });
     }
 
+    const resolveMessageText = () => {
+      if (!twurpleMessage) return "";
+
+      const candidateStrings = [
+        twurpleMessage.messageText,
+        twurpleMessage.text,
+        twurpleMessage.message,
+        twurpleMessage.content?.value,
+        twurpleMessage.content,
+      ];
+
+      for (const candidate of candidateStrings) {
+        if (typeof candidate === "string" && candidate.length > 0) {
+          return candidate;
+        }
+      }
+
+      const paramsContent = twurpleMessage.params?.content;
+      if (Array.isArray(paramsContent)) {
+        const joined = paramsContent
+          .map((part) => {
+            if (typeof part === "string") return part;
+            if (!part) return "";
+            if (typeof part.text === "string") return part.text;
+            if (typeof part.value === "string") return part.value;
+            return "";
+          })
+          .join("");
+        if (joined.length > 0) {
+          return joined;
+        }
+      } else if (typeof paramsContent === "string") {
+        return paramsContent;
+      }
+
+      const fragments = twurpleMessage.messageFragments || twurpleMessage.messageParts;
+      if (Array.isArray(fragments)) {
+        const joined = fragments
+          .map((fragment) => {
+            if (typeof fragment === "string") return fragment;
+            if (!fragment) return "";
+            if (typeof fragment.text === "string") return fragment.text;
+            if (typeof fragment.content === "string") return fragment.content;
+            if (typeof fragment.value === "string") return fragment.value;
+            return "";
+          })
+          .join("");
+        if (joined.length > 0) {
+          return joined;
+        }
+      }
+
+      return "";
+    };
+
+    const text = resolveMessageText();
+
     return new ChatMessage({
-      id: twurpleMessage.id,
-      text: twurpleMessage.content.value,
-      channel: channel,
+      id: twurpleMessage?.id || "",
+      text,
+      channel,
       user: {
-        id: twurpleMessage.userInfo.userId,
-        username: twurpleMessage.userInfo.userName,
-        displayName: twurpleMessage.userInfo.displayName,
-        color: twurpleMessage.userInfo.color,
-        badges: badges,
-        isMod: twurpleMessage.userInfo.isMod,
-        isSubscriber: twurpleMessage.userInfo.isSubscriber,
-        isVip: twurpleMessage.userInfo.isVip,
+        id: userInfo?.userId || "",
+        username: userInfo?.userName || "",
+        displayName: userInfo?.displayName || userInfo?.userName || "",
+        color: userInfo?.color || "",
+        badges,
+        isMod: Boolean(userInfo?.isMod),
+        isSubscriber: Boolean(userInfo?.isSubscriber),
+        isVip: Boolean(userInfo?.isVip),
       },
-      timestamp: twurpleMessage.date?.toISOString() || new Date().toISOString(),
-      isAction: twurpleMessage.isAction,
-      isHighlighted: twurpleMessage.isHighlighted,
-      emotes: emotes,
+      timestamp: twurpleMessage?.date?.toISOString() || new Date().toISOString(),
+      isAction: Boolean(twurpleMessage?.isAction),
+      isHighlighted: Boolean(twurpleMessage?.isHighlighted),
+      emotes,
     });
   }
 }
