@@ -1,5 +1,6 @@
 const logger = require('../utils/logger');
 const { OBSConnectionError } = require('../utils/errors');
+const config = require('../config/config');
 
 class MockOBSConnectionManager {
     constructor() {
@@ -17,6 +18,9 @@ class MockOBSConnectionManager {
             lastSceneChange: null,
             connectionHistory: []
         };
+        this.inputMuteState = new Map();
+        const defaultInput = config.obs.micInputName || 'Mic';
+        this.inputMuteState.set(defaultInput, true);
     }
 
     async connect(host = 'mock://localhost:4456', password = 'mock_password') {
@@ -247,6 +251,68 @@ class MockOBSConnectionManager {
         return this.connected;
     }
 
+    async getInputMuteStatus(inputName = config.obs.micInputName) {
+        if (!this.connected) {
+            throw new OBSConnectionError('Not connected to OBS (Mock)');
+        }
+
+        const targetInput = inputName || config.obs.micInputName;
+        const inputMuted = this.inputMuteState.get(targetInput);
+
+        if (inputMuted === undefined) {
+            throw new OBSConnectionError(`Input '${targetInput}' not found (Mock)`);
+        }
+
+        return {
+            inputName: targetInput,
+            inputMuted,
+            timestamp: new Date().toISOString(),
+        };
+    }
+
+    async setInputMute(inputName = config.obs.micInputName, inputMuted) {
+        if (!this.connected) {
+            throw new OBSConnectionError('Not connected to OBS (Mock)');
+        }
+
+        const targetInput = inputName || config.obs.micInputName;
+
+        if (!this.inputMuteState.has(targetInput)) {
+            throw new OBSConnectionError(`Input '${targetInput}' not found (Mock)`);
+        }
+
+        this.inputMuteState.set(targetInput, Boolean(inputMuted));
+
+        return {
+            status: 'success',
+            inputName: targetInput,
+            inputMuted: Boolean(inputMuted),
+            timestamp: new Date().toISOString(),
+        };
+    }
+
+    async toggleInputMute(inputName = config.obs.micInputName) {
+        if (!this.connected) {
+            throw new OBSConnectionError('Not connected to OBS (Mock)');
+        }
+
+        const targetInput = inputName || config.obs.micInputName;
+
+        if (!this.inputMuteState.has(targetInput)) {
+            throw new OBSConnectionError(`Input '${targetInput}' not found (Mock)`);
+        }
+
+        const newValue = !this.inputMuteState.get(targetInput);
+        this.inputMuteState.set(targetInput, newValue);
+
+        return {
+            status: 'success',
+            inputName: targetInput,
+            inputMuted: newValue,
+            timestamp: new Date().toISOString(),
+        };
+    }
+
     // Reset mock state for testing
     reset() {
         this.connected = false;
@@ -257,6 +323,8 @@ class MockOBSConnectionManager {
             lastSceneChange: null,
             connectionHistory: []
         };
+        const defaultInput = config.obs.micInputName || 'Mic';
+        this.inputMuteState = new Map([[defaultInput, true]]);
         logger.info('Mock OBS connection reset');
     }
 }

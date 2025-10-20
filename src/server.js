@@ -68,6 +68,47 @@ const server = app.listen(config.port, () => {
       errorStack: error.stack,
     });
   }
+
+  // Optional: bootstrap OBS & Chat if tokens exist (non-blocking)
+  try {
+    const TokenService = require("./services/tokenService");
+    const config = require("./config/config");
+    const obsConn = config.mockMode
+      ? require("./services/obsConnectionMock")
+      : require("./services/obsConnection");
+    const chatSvc = require("./services/twitchChatService");
+
+    (async () => {
+      try {
+        const hasTokens = await TokenService.cacheHasValidTokens();
+        if (hasTokens) {
+          try {
+            await obsConn.connect(config.obs.host, config.obs.password);
+            logger.info("OBS bootstrap connect attempted on server start", {
+              host: config.obs.host,
+            });
+          } catch (e) {
+            logger.error("OBS bootstrap connect failed", { error: e.message });
+          }
+
+          try {
+            await chatSvc.initialize(null, config.twitch.chat.connectionType);
+            logger.info("Chat bootstrap initialize attempted on server start", {
+              connectionType: config.twitch.chat.connectionType,
+            });
+          } catch (e) {
+            logger.error("Chat bootstrap initialize failed", {
+              error: e.message,
+            });
+          }
+        }
+      } catch (e) {
+        logger.error("Bootstrap precheck failed", { error: e.message });
+      }
+    })();
+  } catch (e) {
+    logger.error("Bootstrap scheduling failed", { error: e.message });
+  }
 });
 
 // Handle uncaught exceptions

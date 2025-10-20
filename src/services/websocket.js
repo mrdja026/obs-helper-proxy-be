@@ -1,4 +1,5 @@
 const WebSocket = require("ws");
+const { z } = require("zod");
 const logger = require("../utils/logger");
 const config = require("../config/config");
 const twitchChatService = require("./twitchChatService");
@@ -22,6 +23,13 @@ class WebSocketService {
       errors: 0,
       lastActivity: null,
     };
+
+    this.envelopeSchema = z.object({
+      v: z.number().optional(),
+      type: z.string(),
+      data: z.any(),
+      timestamp: z.string().optional(),
+    });
   }
 
   setup(server) {
@@ -55,6 +63,23 @@ class WebSocketService {
   }
 
   handleConnection(ws, req) {
+    // Optional lightweight token auth via query string `token`
+    try {
+      const url = new URL(req.url, `http://localhost`);
+      const providedToken = url.searchParams.get("token");
+      const expectedToken = process.env.WS_SHARED_TOKEN || "";
+      if (expectedToken && providedToken !== expectedToken) {
+        ws.close(1008, "Invalid token");
+        return;
+      }
+    } catch (e) {
+      // If URL parsing fails, proceed (dev mode) unless token is required
+      const expectedToken = process.env.WS_SHARED_TOKEN || "";
+      if (expectedToken) {
+        ws.close(1008, "Unauthorized");
+        return;
+      }
+    }
     const clientId = this.generateClientId();
     const clientInfo = {
       id: clientId,
@@ -79,6 +104,7 @@ class WebSocketService {
 
     // Send initial connection status
     this.sendToClient(clientId, {
+      v: 1,
       type: "connectionStatus",
       data: {
         connected: obsConnection.isConnected(),
@@ -86,6 +112,7 @@ class WebSocketService {
         clientId: clientId,
         serverTime: new Date().toISOString(),
       },
+      timestamp: new Date().toISOString(),
     });
 
     ws.on("close", (code, reason) => {
@@ -147,6 +174,10 @@ class WebSocketService {
       this.stats.lastActivity = new Date().toISOString();
 
       const message = JSON.parse(data.toString());
+      // Minimal schema guard
+      if (typeof message !== "object" || typeof message.type !== "string") {
+        throw new Error("Invalid message envelope");
+      }
 
       if (config.logging.enableWebSocketLogs) {
         logger.debug(`WebSocket message received`, {
@@ -160,20 +191,24 @@ class WebSocketService {
       switch (message.type) {
         case "ping":
           this.sendToClient(clientId, {
+            v: 1,
             type: "pong",
             data: {
               timestamp: new Date().toISOString(),
             },
+            timestamp: new Date().toISOString(),
           });
           break;
         case "getStatus":
           this.sendToClient(clientId, {
+            v: 1,
             type: "statusResponse",
             data: {
               connected: obsConnection.isConnected(),
               mockMode: config.mockMode,
-              serverStats: this.stats,
+              serverStats: this.getStats(),
             },
+            timestamp: new Date().toISOString(),
           });
           break;
         default:
@@ -220,14 +255,15 @@ class WebSocketService {
     // Handle scene changes
     obsConnection.addEventHandler("sceneChanged", (data) => {
       const message = {
+        v: 1,
         type: "sceneChanged",
         data: {
           sceneName: data.sceneName,
           previousSceneName: data.previousSceneName,
           sceneIndex: data.sceneIndex,
           previousSceneIndex: data.previousSceneIndex,
-          timestamp: new Date().toISOString(),
         },
+        timestamp: new Date().toISOString(),
       };
 
       this.broadcast(message);
@@ -242,13 +278,14 @@ class WebSocketService {
     // Handle connection status changes
     obsConnection.addEventHandler("connectionStatus", (data) => {
       const message = {
+        v: 1,
         type: "obsConnectionStatus",
         data: {
           connected: data.connected,
           host: data.host,
           mockMode: config.mockMode,
-          timestamp: new Date().toISOString(),
         },
+        timestamp: new Date().toISOString(),
       };
 
       this.broadcast(message);
@@ -263,12 +300,13 @@ class WebSocketService {
     // Handle errors
     obsConnection.addEventHandler("error", (error) => {
       const message = {
+        v: 1,
         type: "obsError",
         data: {
           message: error.message,
           name: error.name,
-          timestamp: new Date().toISOString(),
         },
+        timestamp: new Date().toISOString(),
       };
 
       this.broadcast(message);
@@ -284,8 +322,10 @@ class WebSocketService {
     // Handle chat messages
     twitchChatService.on(ChatEventTypes.MESSAGE, (message) => {
       const wsMessage = {
+        v: 1,
         type: ChatEventTypes.MESSAGE,
         data: message,
+        timestamp: new Date().toISOString(),
       };
 
       this.broadcast(wsMessage);
@@ -309,8 +349,10 @@ class WebSocketService {
     // Handle chat connection status changes
     twitchChatService.on(ChatEventTypes.CONNECTION_STATUS, (status) => {
       const wsMessage = {
+        v: 1,
         type: ChatEventTypes.CONNECTION_STATUS,
         data: status,
+        timestamp: new Date().toISOString(),
       };
 
       this.broadcast(wsMessage);
@@ -329,12 +371,13 @@ class WebSocketService {
     // Handle chat errors
     twitchChatService.on(ChatEventTypes.ERROR, (error) => {
       const wsMessage = {
+        v: 1,
         type: ChatEventTypes.ERROR,
         data: {
           source: "chat",
           message: error.message,
-          timestamp: new Date().toISOString(),
         },
+        timestamp: new Date().toISOString(),
       };
 
       this.broadcast(wsMessage);
@@ -351,8 +394,10 @@ class WebSocketService {
     // Handle sent chat messages
     twitchChatService.on(ChatEventTypes.SENT_MESSAGE, (message) => {
       const wsMessage = {
+        v: 1,
         type: ChatEventTypes.SENT_MESSAGE,
         data: message,
+        timestamp: new Date().toISOString(),
       };
 
       this.broadcast(wsMessage);
@@ -373,7 +418,23 @@ class WebSocketService {
   }
 
   broadcast(message, excludeClientId = null) {
-    const messageStr = JSON.stringify(message);
+    // Validate and normalize envelope
+    let envelope = {};
+    try {
+      envelope = this.envelopeSchema.parse({
+        v: 1,
+        timestamp: new Date().toISOString(),
+        ...message,
+      });
+    } catch (e) {
+      logger.error("Invalid WS envelope for broadcast", {
+        error: e?.message,
+        message,
+      });
+      return;
+    }
+
+    const messageStr = JSON.stringify(envelope);
     let sentCount = 0;
 
     this.clients.forEach((clientInfo, clientId) => {
@@ -420,7 +481,13 @@ class WebSocketService {
 
     if (clientInfo.ws.readyState === WebSocket.OPEN) {
       try {
-        const messageStr = JSON.stringify(message);
+        // Validate and normalize envelope
+        const envelope = this.envelopeSchema.parse({
+          v: 1,
+          timestamp: new Date().toISOString(),
+          ...message,
+        });
+        const messageStr = JSON.stringify(envelope);
         clientInfo.ws.send(messageStr);
         clientInfo.messageCount++;
         this.stats.messagesSent++;
@@ -484,4 +551,5 @@ const websocketService = new WebSocketService();
 
 module.exports = {
   setupWebSocket: (server) => websocketService.setup(server),
+  getStats: () => websocketService.getStats(),
 };

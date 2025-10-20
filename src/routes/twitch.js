@@ -20,24 +20,24 @@ router.get("/auth/callback", async (req, res, next) => {
   });
   passport.authenticate(
     "twitch",
-    { failureRedirect: "http://localhost:8080/?auth=error" },
+    { failureRedirect: "http://localhost:8084/?auth=error" },
     (err, user, info) => {
       if (err) {
         logger.error("Passport authenticate error:", err);
-        return res.redirect("http://localhost:8080/?auth=error");
+        return res.redirect("http://localhost:8084/?auth=error");
       }
       if (!user) {
         logger.error(
           "Passport authenticate failed: no user returned. Info:",
           info
         );
-        return res.redirect("http://localhost:8080/?auth=error");
+        return res.redirect("http://localhost:8084/?auth=error");
       }
       // Log in the user
       req.logIn(user, async (loginErr) => {
         if (loginErr) {
           logger.error("req.logIn error:", loginErr);
-          return res.redirect("http://localhost:8080/?auth=error");
+          return res.redirect("http://localhost:8084/?auth=error");
         }
 
         // Store tokens in session using TokenService
@@ -61,14 +61,57 @@ router.get("/auth/callback", async (req, res, next) => {
             if (saveErr) {
               logger.error("Session save error after login:", saveErr);
               // Still redirect, frontend will be able to use token fallback if configured
-              return res.redirect("http://localhost:8080/?auth=partial");
+              return res.redirect("http://localhost:8084/?auth=partial");
             }
+            // Fire-and-forget: auto-connect OBS and initialize chat after successful auth
+            // Do not await; keep redirect snappy
+            try {
+              (async () => {
+                const config = require("../config/config");
+                const logger = require("../utils/logger");
+                const obsConnection = config.mockMode
+                  ? require("../services/obsConnectionMock")
+                  : require("../services/obsConnection");
+                const twitchChatService = require("../services/twitchChatService");
+
+                try {
+                  await obsConnection.connect(
+                    config.obs.host,
+                    config.obs.password
+                  );
+                  logger.info("OBS auto-connect triggered after Twitch auth", {
+                    host: config.obs.host,
+                  });
+                } catch (e) {
+                  logger.error("OBS auto-connect failed", { error: e.message });
+                }
+
+                try {
+                  await twitchChatService.initialize(
+                    req.session,
+                    config.twitch.chat.connectionType
+                  );
+                  logger.info("Chat auto-connect triggered after Twitch auth", {
+                    connectionType: config.twitch.chat.connectionType,
+                  });
+                } catch (e) {
+                  logger.error("Chat auto-connect failed", {
+                    error: e.message,
+                  });
+                }
+              })();
+            } catch (e) {
+              logger.error("Auto-connect scheduler failed", {
+                error: e.message,
+              });
+            }
+
             // Redirect to frontend with success indicator
-            return res.redirect("http://localhost:8080/?auth=success");
+            return res.redirect("http://localhost:8084/?auth=success");
           });
         } catch (e) {
           logger.error("Unexpected session save exception:", e);
-          return res.redirect("http://localhost:8080/?auth=partial");
+          return res.redirect("http://localhost:8084/?auth=partial");
         }
       });
     }

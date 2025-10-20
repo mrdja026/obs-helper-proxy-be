@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const ws = require("../services/websocket");
 
 // Health check endpoint
 router.get("/health", (req, res) => {
@@ -8,6 +9,15 @@ router.get("/health", (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
   });
+});
+
+// WS stats (best-effort)
+router.get("/ws/stats", (req, res) => {
+  try {
+    res.json(ws.getStats());
+  } catch (e) {
+    res.status(500).json({ error: e?.message || "failed" });
+  }
 });
 
 // OBS routes

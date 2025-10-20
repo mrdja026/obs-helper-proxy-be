@@ -29,6 +29,36 @@ npm run dev
 - `GET /scene/current` - Get current scene
 - `POST /scene/change` - Change scene
 - `WS /events` - WebSocket endpoint for scene change events
+- `GET /mic/status` - Get mute state for the configured mic input
+- `POST /mic/start` - Unmute the mic (begin push-to-talk)
+- `POST /mic/stop` - Mute the mic (end push-to-talk)
+- `POST /mic/toggle` - Toggle the mic mute state
+
+### Push-to-talk controls
+
+These endpoints depend on the OBS input defined by `OBS_MIC_INPUT_NAME` (defaults to `Mic`). Optionally set `OBS_MIC_SCENE_NAME` if you want to document which scene houses the source.
+
+Example requests:
+
+```bash
+# Get current mute state (optional inputName query)
+curl "http://localhost:3001/api/obs/mic/status?inputName=Mic"
+
+# Unmute the mic while a key is held down
+curl -X POST http://localhost:3001/api/obs/mic/start \
+  -H "Content-Type: application/json" \
+  -d '{"inputName":"Mic"}'
+
+# Re-mute when the key is released
+curl -X POST http://localhost:3001/api/obs/mic/stop \
+  -H "Content-Type: application/json" \
+  -d '{"inputName":"Mic"}'
+
+# Toggle from any client (responds with the new state)
+curl -X POST http://localhost:3001/api/obs/mic/toggle \
+  -H "Content-Type: application/json" \
+  -d '{"inputName":"Mic"}'
+```
 
 ## Development
 
