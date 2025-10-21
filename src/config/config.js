@@ -14,6 +14,8 @@ module.exports = {
       "http://localhost:8084",
       "http://localhost:8081",
       "http://192.168.0.234:8081",
+      "http://localhost:8082",
+      "http://192.168.0.234:8082",
       "exp://192.168.0.234:8081",
     ],
     credentials: true,
