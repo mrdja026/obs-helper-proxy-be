@@ -4,6 +4,7 @@ const { RefreshingAuthProvider } = require("@twurple/auth");
 const logger = require("../utils/logger");
 const config = require("../config/config");
 const TokenService = require("./tokenService");
+const songQueue = require("./songQueue");
 const {
   ChatMessage,
   SendMessageRequest,
@@ -257,19 +258,8 @@ class TwitchChatService {
         throw new Error("Not connected to chat");
       }
 
-      // Send message
-      if (messageRequest.replyToMessageId) {
-        await this.chatClient.reply(
-          messageRequest.channel,
-          messageRequest.message,
-          messageRequest.replyToMessageId
-        );
-      } else {
-        await this.chatClient.say(
-          messageRequest.channel,
-          messageRequest.message
-        );
-      }
+      // Send message (Twurple version in use doesn't support reply())
+      await this.chatClient.say(messageRequest.channel, messageRequest.message);
 
       response.success = true;
       const generatedMessageId =
@@ -344,6 +334,110 @@ class TwitchChatService {
         });
 
         this.emitEvent(ChatEventTypes.MESSAGE, chatMessage);
+
+        // Command parsing
+        try {
+          const text = (chatMessage.text || "").trim();
+          const isAdmin =
+            Boolean(chatMessage.user.isMod) ||
+            /\bbroadcaster\b/i.test(
+              (chatMessage.user.badges || []).map((b) => b.id).join(" ")
+            );
+
+          // !song <title>
+          if (text.toLowerCase().startsWith("!song ")) {
+            const title = text.slice(6).trim();
+            const result = songQueue.addSong({
+              title,
+              requestedBy: chatMessage.user.username,
+            });
+            if (!result.ok) {
+              let reply = "";
+              if (result.error === "full") {
+                reply = "Queue full. Try again once the queue is empty.";
+              } else if (result.error === "invalid_title") {
+                reply = "Please provide a valid song title.";
+              } else {
+                reply = "Could not add song.";
+              }
+              this.sendMessage(
+                new SendMessageRequest({
+                  channel: channelName,
+                  message: reply,
+                  replyToMessageId: chatMessage.id,
+                })
+              );
+            } else {
+              const reply = `Added to queue at position ${result.position}: ${result.item.title} (by ${chatMessage.user.username})`;
+              this.sendMessage(
+                new SendMessageRequest({
+                  channel: channelName,
+                  message: reply,
+                  replyToMessageId: chatMessage.id,
+                })
+              );
+            }
+            return;
+          }
+
+          // !skip
+          if (text.toLowerCase() === "!skip") {
+            if (!isAdmin) return;
+            const result = songQueue.skip();
+            let reply = "";
+            if (!result.ok) {
+              reply = "Queue is empty.";
+            } else {
+              reply = `Skipped: ${result.item.title}`;
+            }
+            this.sendMessage(
+              new SendMessageRequest({
+                channel: channelName,
+                message: reply,
+                replyToMessageId: chatMessage.id,
+              })
+            );
+            return;
+          }
+
+          // !remove <index>
+          if (/^!remove\s+\d+$/i.test(text)) {
+            if (!isAdmin) return;
+            const idx = Number(text.split(/\s+/)[1]);
+            const result = songQueue.removeByIndex(idx);
+            let reply = "";
+            if (!result.ok) {
+              reply = `No song at index ${idx}`;
+            } else {
+              reply = `Removed #${idx}: ${result.item.title}`;
+            }
+            this.sendMessage(
+              new SendMessageRequest({
+                channel: channelName,
+                message: reply,
+                replyToMessageId: chatMessage.id,
+              })
+            );
+            return;
+          }
+
+          // !clearqueue
+          if (text.toLowerCase() === "!clearqueue") {
+            if (!isAdmin) return;
+            const result = songQueue.clear();
+            const reply = "Queue cleared.";
+            this.sendMessage(
+              new SendMessageRequest({
+                channel: channelName,
+                message: reply,
+                replyToMessageId: chatMessage.id,
+              })
+            );
+            return;
+          }
+        } catch (e) {
+          logger.error("Command handling error", { error: e.message });
+        }
       } else {
         logger.warn("Received invalid chat message", {
           errors: validation.errors,

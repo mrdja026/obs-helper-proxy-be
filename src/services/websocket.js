@@ -4,6 +4,7 @@ const logger = require("../utils/logger");
 const config = require("../config/config");
 const twitchChatService = require("./twitchChatService");
 const { ChatEventTypes } = require("../dto/chatDto");
+const songQueue = require("./songQueue");
 
 // Conditionally require the appropriate connection service
 const obsConnection = config.mockMode
@@ -47,6 +48,11 @@ class WebSocketService {
 
     // Set up chat event handlers
     this.setupChatEventHandlers();
+
+    // Subscribe to song queue updates
+    songQueue.onUpdated((queue) => {
+      this.broadcastSongQueueUpdated(queue);
+    });
 
     // Start heartbeat
     this.startHeartbeat();
@@ -417,6 +423,22 @@ class WebSocketService {
     });
   }
 
+  broadcastSongQueueUpdated(queue) {
+    const message = {
+      v: 1,
+      type: "songQueueUpdated",
+      data: { queue },
+      timestamp: new Date().toISOString(),
+    };
+
+    this.broadcast(message);
+
+    logger.info("🎵 Song queue update broadcasted", {
+      length: Array.isArray(queue) ? queue.length : 0,
+      clientCount: this.clients.size,
+    });
+  }
+
   broadcast(message, excludeClientId = null) {
     // Validate and normalize envelope
     let envelope = {};
@@ -552,4 +574,6 @@ const websocketService = new WebSocketService();
 module.exports = {
   setupWebSocket: (server) => websocketService.setup(server),
   getStats: () => websocketService.getStats(),
+  broadcastSongQueueUpdated: (queue) =>
+    websocketService.broadcastSongQueueUpdated(queue),
 };

@@ -29,6 +29,9 @@ router.use("/twitch", require("./twitch"));
 // Chat routes
 router.use("/chat", require("./chat"));
 
+// Queue routes
+router.use("/", require("./queue"));
+
 // Test routes
 router.use("/test", require("./test"));
 
