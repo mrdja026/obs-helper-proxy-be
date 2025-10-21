@@ -32,6 +32,9 @@ router.use("/chat", require("./chat"));
 // Queue routes
 router.use("/", require("./queue"));
 
+// Spotify routes
+router.use("/spotify", require("./spotify"));
+
 // Test routes
 router.use("/test", require("./test"));
 

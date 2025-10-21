@@ -17,6 +17,7 @@ module.exports = {
       "http://localhost:8082",
       "http://192.168.0.234:8082",
       "exp://192.168.0.234:8081",
+      "https://127.0.0.1:8443",
     ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -26,6 +27,28 @@ module.exports = {
     heartbeatInterval: process.env.WS_HEARTBEAT_INTERVAL || 30000,
     maxReconnectAttempts: process.env.WS_MAX_RECONNECT_ATTEMPTS || 5,
     reconnectInterval: process.env.WS_RECONNECT_INTERVAL || 3000,
+  },
+  spotify: {
+    clientId: process.env.SPOTIFY_CLIENT_ID,
+    redirectUri:
+      process.env.SPOTIFY_REDIRECT_URI || "obshelper://oauthredirect",
+    redirectUriNative:
+      process.env.SPOTIFY_REDIRECT_URI_NATIVE || "obshelper://oauthredirect",
+    redirectUriWeb:
+      process.env.SPOTIFY_REDIRECT_URI_WEB ||
+      "https://127.0.0.1:8443/oauthredirect",
+    scopes: [
+      "user-modify-playback-state",
+      "user-read-playback-state",
+      // optional scopes can be appended here: "user-read-currently-playing"
+    ],
+    tokenStorage: {
+      method: process.env.SPOTIFY_TOKEN_STORAGE_METHOD || "file",
+      filePath: process.env.SPOTIFY_TOKEN_FILE_PATH || "spotify-tokens.json",
+    },
+    get allowedRedirectUris() {
+      return [this.redirectUriNative, this.redirectUriWeb].filter(Boolean);
+    },
   },
   twitch: {
     clientId: process.env.TWITCH_CLIENT_ID,

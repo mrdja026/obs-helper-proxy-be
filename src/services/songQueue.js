@@ -5,6 +5,7 @@ const MAX_CAPACITY = 10;
 
 let queue = [];
 const events = new EventEmitter();
+const spotify = require("./spotifyService");
 
 function sanitizeTitle(title) {
   if (typeof title !== "string") return "";
@@ -24,9 +25,52 @@ function addSong({ title, requestedBy }) {
     title: cleanTitle,
     requestedBy: requestedBy || "",
     requestedAt: Date.now(),
+    matchStatus: "pending",
+    spotify: null,
+    matchError: null,
   };
   queue.push(item);
   events.emit("updated", getAll());
+
+  // Async match with Spotify
+  (async () => {
+    try {
+      const best = await spotify.searchBestTrack(cleanTitle);
+      if (best) {
+        // update in-place by id
+        const idx = queue.findIndex((q) => q.id === item.id);
+        if (idx >= 0) {
+          queue[idx] = {
+            ...queue[idx],
+            matchStatus: "matched",
+            spotify: best,
+            matchError: null,
+          };
+          events.emit("updated", getAll());
+        }
+      } else {
+        const idx = queue.findIndex((q) => q.id === item.id);
+        if (idx >= 0) {
+          queue[idx] = {
+            ...queue[idx],
+            matchStatus: "error",
+            matchError: "no_match",
+          };
+          events.emit("updated", getAll());
+        }
+      }
+    } catch (e) {
+      const idx = queue.findIndex((q) => q.id === item.id);
+      if (idx >= 0) {
+        queue[idx] = {
+          ...queue[idx],
+          matchStatus: "error",
+          matchError: "search_failed",
+        };
+        events.emit("updated", getAll());
+      }
+    }
+  })();
   return { ok: true, item, position: queue.length };
 }
 
