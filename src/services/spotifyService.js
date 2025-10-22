@@ -90,10 +90,77 @@ async function addToPlaybackQueue(uri) {
   }
 }
 
+async function getPlaybackSnapshot() {
+  const client = await ensureAccessToken();
+  try {
+    const [playRes, devicesRes] = await Promise.all([
+      client.getMyCurrentPlaybackState(),
+      client.getMyDevices(),
+    ]);
+
+    const playback = playRes?.body || null;
+    const devices = Array.isArray(devicesRes?.body?.devices)
+      ? devicesRes.body.devices
+      : [];
+
+    const maskId = (id) =>
+      typeof id === "string" && id.length > 8
+        ? id.slice(0, 4) + "…" + id.slice(-4)
+        : id || null;
+
+    const safePlayback = playback
+      ? {
+          isPlaying: !!playback.is_playing,
+          progressMs:
+            typeof playback.progress_ms === "number"
+              ? playback.progress_ms
+              : null,
+          item: playback.item
+            ? {
+                name: playback.item.name || null,
+                uri: playback.item.uri || null,
+                artists: Array.isArray(playback.item.artists)
+                  ? playback.item.artists.map((a) => a.name)
+                  : [],
+                durationMs:
+                  typeof playback.item.duration_ms === "number"
+                    ? playback.item.duration_ms
+                    : null,
+              }
+            : null,
+          device: playback.device
+            ? {
+                name: playback.device.name || null,
+                id: maskId(playback.device.id),
+                is_active: !!playback.device.is_active,
+                type: playback.device.type || null,
+              }
+            : null,
+        }
+      : null;
+
+    const safeDevices = devices.map((d) => ({
+      name: d?.name || null,
+      id: maskId(d?.id),
+      is_active: !!d?.is_active,
+      type: d?.type || null,
+    }));
+
+    return {
+      playback: safePlayback,
+      devices: safeDevices,
+      fetchedAt: new Date().toISOString(),
+    };
+  } catch (e) {
+    logger.error("Spotify debug snapshot failed", { error: e.message });
+    throw e;
+  }
+}
+
 async function exchangeCodeForTokens({ code, codeVerifier, redirectUri }) {
   // PKCE: exchange via token endpoint with clientId + code_verifier
   // spotify-web-api-node doesn't expose PKCE exchange directly; use fetch
-  const fetch = require("node-fetch");
+  const { default: fetch } = await import("node-fetch");
   const params = new URLSearchParams();
   params.set("grant_type", "authorization_code");
   params.set("code", code);
@@ -139,4 +206,5 @@ module.exports = {
   getPlaybackState,
   addToPlaybackQueue,
   exchangeCodeForTokens,
+  getPlaybackSnapshot,
 };

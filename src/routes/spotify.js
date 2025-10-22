@@ -3,6 +3,7 @@ const router = express.Router();
 const logger = require("../utils/logger");
 const spotify = require("../services/spotifyService");
 const songQueue = require("../services/songQueue");
+const fileStore = require("../services/spotifyFileTokenStorage");
 
 // Exchange PKCE auth code for tokens and store refresh token
 router.post("/auth/exchange", async (req, res) => {
@@ -50,6 +51,49 @@ router.post("/queue", async (req, res) => {
   } catch (e) {
     logger.error("Spotify queue failed", { error: e.message });
     return res.status(500).json({ error: "queue_failed" });
+  }
+});
+
+// Spotify auth status
+router.get("/status", async (_req, res) => {
+  try {
+    const tokens = await fileStore.getTokens();
+    if (!tokens) {
+      return res.json({
+        authenticated: false,
+        hasRefresh: false,
+        expiresAt: null,
+      });
+    }
+    return res.json({
+      authenticated: true,
+      hasRefresh: !!tokens.refreshToken,
+      expiresAt: tokens.expiresAt || null,
+    });
+  } catch (e) {
+    logger.error("Spotify status failed", { error: e.message });
+    return res.json({
+      authenticated: false,
+      hasRefresh: false,
+      expiresAt: null,
+    });
+  }
+});
+
+// Spotify playback/devices debug snapshot (sanitized)
+router.get("/debug", async (_req, res) => {
+  try {
+    const snapshot = await spotify.getPlaybackSnapshot();
+    return res.json(snapshot);
+  } catch (e) {
+    const msg = e?.message || "debug_failed";
+    if (
+      msg === "spotify_not_authenticated" ||
+      msg === "spotify_refresh_failed"
+    ) {
+      return res.status(401).json({ error: msg });
+    }
+    return res.status(500).json({ error: "debug_failed" });
   }
 });
 

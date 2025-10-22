@@ -1,0 +1,12 @@
+{
+  "accessToken": "BQBzsPpWNrZqJPXEijR43YkZVSt8ORkoF-mQlyuL7PAxoI9zOeremfaS7Pz9tlAWxL4T8pN-jlHq-yvqftV4GRQmXu33qljnUQcoow_BCBP38xP3haZTwGZhCIitbu-AgXxsrDSHM6AuSv5XIJoa1UnPOzwy1OoAKEti-wskaHwMyxYGEnNQPoYPgEFu8WfzUzQGeveM2AZIbdWKd_E2D5PvjIeJl7GoyZHKnwtc5JH14rfGLpKkfLXPICw",
+  "refreshToken": "AQDbxsIdDqbgimfYUuWGM9zuo4zIIdsP-RHSXRljlYBplJ5RpOhZabUBfxYEoWaeQ-Y4Rg3Ar0s25AjuQb8z3hHTrKKORYTGQvQkATU_PpsaMQa3YfmFfkNATqOgIgL6OI4",
+  "expiresAt": "2025-10-22T03:32:53.684Z",
+  "scope": [
+    "user-modify-playback-state",
+    "user-read-playback-state"
+  ],
+  "tokenType": "Bearer",
+  "user": null,
+  "storedAt": "2025-10-22T02:32:53.684Z"
+}
