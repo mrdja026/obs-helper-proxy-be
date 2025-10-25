@@ -20,21 +20,41 @@ async function ensureAccessToken() {
   // refresh if expired (best-effort)
   if (new Date() >= new Date(tokens.expiresAt)) {
     try {
-      const data = await client.refreshAccessToken();
-      const accessToken = data.body["access_token"];
-      const expiresIn = data.body["expires_in"];
-      client.setAccessToken(accessToken);
+      // PKCE-compatible refresh: do NOT use client secret
+      const { default: fetch } = await import("node-fetch");
+      const params = new URLSearchParams();
+      params.set("grant_type", "refresh_token");
+      params.set("refresh_token", tokens.refreshToken);
+      params.set("client_id", config.spotify.clientId);
+
+      const resp = await fetch("https://accounts.spotify.com/api/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: params.toString(),
+      });
+
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`spotify_refresh_failed ${resp.status} ${text}`);
+      }
+
+      const body = await resp.json();
+      const accessToken = body.access_token;
+      const expiresIn = body.expires_in;
+      const newRefreshToken = body.refresh_token || tokens.refreshToken;
+
       await fileStore.storeTokens(
         {
           accessToken,
-          refreshToken: tokens.refreshToken,
+          refreshToken: newRefreshToken,
           expiresIn,
           scope: tokens.scope,
-          tokenType: tokens.tokenType,
+          tokenType: body.token_type || tokens.tokenType,
         },
         tokens.user
       );
-      return createClient(accessToken, tokens.refreshToken);
+
+      return createClient(accessToken, newRefreshToken);
     } catch (e) {
       logger.error("Spotify refresh failed", { error: e.message });
       throw new Error("spotify_refresh_failed");

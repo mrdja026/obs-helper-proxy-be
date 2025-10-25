@@ -65,8 +65,11 @@ router.get("/status", async (_req, res) => {
         expiresAt: null,
       });
     }
+    const isValid = tokens.expiresAt
+      ? new Date() < new Date(tokens.expiresAt)
+      : false;
     return res.json({
-      authenticated: true,
+      authenticated: isValid,
       hasRefresh: !!tokens.refreshToken,
       expiresAt: tokens.expiresAt || null,
     });

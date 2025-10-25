@@ -5,7 +5,11 @@ const config = require("../config/config");
 
 class SpotifyFileTokenStorage {
   constructor() {
-    const filePath = (config.spotify && config.spotify.tokenStorage && config.spotify.tokenStorage.filePath) || "spotify-tokens.json";
+    const filePath =
+      (config.spotify &&
+        config.spotify.tokenStorage &&
+        config.spotify.tokenStorage.filePath) ||
+      "spotify-tokens.json";
     this.tokenFilePath = path.join(process.cwd(), filePath);
     this.tokens = null;
     this.lastRead = null;
@@ -23,34 +27,49 @@ class SpotifyFileTokenStorage {
         user: user || null,
         storedAt: new Date().toISOString(),
       };
-      await fs.writeFile(this.tokenFilePath, JSON.stringify(tokenData, null, 2));
+      await fs.writeFile(
+        this.tokenFilePath,
+        JSON.stringify(tokenData, null, 2)
+      );
       this.tokens = tokenData;
       this.lastRead = Date.now();
-      logger.info("Spotify tokens stored to file", { filePath: this.tokenFilePath });
+      logger.info("Spotify tokens stored to file", {
+        filePath: this.tokenFilePath,
+      });
       return true;
     } catch (error) {
-      logger.error("Failed to store Spotify tokens to file", { error: error.message, filePath: this.tokenFilePath });
+      logger.error("Failed to store Spotify tokens to file", {
+        error: error.message,
+        filePath: this.tokenFilePath,
+      });
       return false;
     }
   }
 
   async getTokens() {
     try {
-      if (this.tokens && this.lastRead && Date.now() - this.lastRead < this.readInterval) {
-        return this.isTokenValid(this.tokens) ? this.tokens : null;
+      if (
+        this.tokens &&
+        this.lastRead &&
+        Date.now() - this.lastRead < this.readInterval
+      ) {
+        // Return tokens even if expired; callers (spotifyService) handle refresh
+        return this.tokens;
       }
       const fileContent = await fs.readFile(this.tokenFilePath, "utf8");
       const tokenData = JSON.parse(fileContent);
       this.tokens = tokenData;
       this.lastRead = Date.now();
-      return this.isTokenValid(tokenData) ? tokenData : null;
+      // Return tokens even if expired; callers (spotifyService) handle refresh
+      return tokenData;
     } catch (error) {
       return null;
     }
   }
 
   isTokenValid(tokenData) {
-    if (!tokenData || !tokenData.expiresAt || !tokenData.accessToken) return false;
+    if (!tokenData || !tokenData.expiresAt || !tokenData.accessToken)
+      return false;
     return new Date() < new Date(tokenData.expiresAt);
   }
 
@@ -66,5 +85,3 @@ class SpotifyFileTokenStorage {
 }
 
 module.exports = new SpotifyFileTokenStorage();
-
-
