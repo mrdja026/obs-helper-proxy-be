@@ -46,6 +46,27 @@ class SpotifyFileTokenStorage {
     }
   }
 
+  async clearTokens() {
+    try {
+      //fucked up shit happens here
+      await fs.unlink(this.tokenFilePath).catch((error) => {
+        console.error("UNLINKING FILE FAILED", { cause: error.cause });
+      });
+      this.tokens = null;
+      this.lastRead = Date.now();
+      logger.info("Spotify tokens cleared from file", {
+        filePath: this.tokenFilePath,
+      });
+      return true;
+    } catch (error) {
+      logger.error("Failed to clear Spotify tokens file", {
+        error: error.message,
+        filePath: this.tokenFilePath,
+      });
+      return false;
+    }
+  }
+
   async getTokens() {
     try {
       if (

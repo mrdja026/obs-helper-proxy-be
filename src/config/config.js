@@ -56,7 +56,14 @@ module.exports = {
     callbackUrl:
       process.env.TWITCH_CALLBACK_URL ||
       "http://localhost:3001/api/twitch/auth/callback",
-    scopes: ["user:read:email", "chat:read", "chat:edit"],
+    scopes: [
+      "user:read:email",
+      "chat:read",
+      "chat:edit",
+      // Added for realtime notifications via EventSub
+      "channel:read:subscriptions",
+      "moderator:read:followers",
+    ],
     tokenStorage: {
       method: process.env.TWITCH_TOKEN_STORAGE_METHOD || "file", // "session", "file", or "hybrid"
       filePath: process.env.TWITCH_TOKEN_FILE_PATH || "twitch-tokens.json",

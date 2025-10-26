@@ -3,6 +3,7 @@ const { z } = require("zod");
 const logger = require("../utils/logger");
 const config = require("../config/config");
 const twitchChatService = require("./twitchChatService");
+const twitchEventSubService = require("./twitchEventSubService");
 const { ChatEventTypes } = require("../dto/chatDto");
 const songQueue = require("./songQueue");
 
@@ -48,6 +49,9 @@ class WebSocketService {
 
     // Set up chat event handlers
     this.setupChatEventHandlers();
+
+    // Set up EventSub follow/sub handlers
+    this.setupEventSubHandlers();
 
     // Subscribe to song queue updates
     songQueue.onUpdated((queue) => {
@@ -423,6 +427,54 @@ class WebSocketService {
     });
   }
 
+  setupEventSubHandlers() {
+    try {
+      if (!twitchEventSubService || !twitchEventSubService.on) {
+        logger.warn(
+          "EventSub service unavailable; skipping follow/sub WS wiring"
+        );
+        return;
+      }
+
+      // Avoid duplicate registrations by removing previous listeners first
+      twitchEventSubService.removeAllListeners("twitchFollow");
+      twitchEventSubService.removeAllListeners("twitchSubscribe");
+
+      twitchEventSubService.on("twitchFollow", (payload) => {
+        const message = {
+          v: 1,
+          type: "twitchFollow",
+          data: payload,
+          timestamp: new Date().toISOString(),
+        };
+        this.broadcast(message);
+        logger.info("📡 Follow event broadcasted", {
+          displayName: payload?.displayName,
+          clientCount: this.clients.size,
+        });
+      });
+
+      twitchEventSubService.on("twitchSubscribe", (payload) => {
+        const message = {
+          v: 1,
+          type: "twitchSubscribe",
+          data: payload,
+          timestamp: new Date().toISOString(),
+        };
+        this.broadcast(message);
+        logger.info("📡 Subscribe event broadcasted", {
+          displayName: payload?.displayName,
+          tier: payload?.tier,
+          isGift: payload?.isGift,
+          months: payload?.months,
+          clientCount: this.clients.size,
+        });
+      });
+    } catch (e) {
+      logger.error("Failed to setup EventSub handlers", { error: e?.message });
+    }
+  }
+
   broadcastSongQueueUpdated(queue) {
     const message = {
       v: 1,
@@ -576,4 +628,5 @@ module.exports = {
   getStats: () => websocketService.getStats(),
   broadcastSongQueueUpdated: (queue) =>
     websocketService.broadcastSongQueueUpdated(queue),
+  _instance: websocketService,
 };

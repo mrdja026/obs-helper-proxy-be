@@ -180,6 +180,21 @@ router.get("/status", async (req, res) => {
   }
 });
 
+// On-demand Twitch token refresh
+router.post("/refresh", async (req, res) => {
+  const logger = require("../utils/logger");
+  try {
+    const result = await TokenService.refreshTokens(req.session);
+    if (result?.ok) {
+      return res.json({ ok: true, expiresAt: result.expiresAt || null });
+    }
+    return res.status(401).json({ code: "TWITCH_AUTH_REQUIRED" });
+  } catch (e) {
+    logger.error("/api/twitch/refresh failed", e);
+    return res.status(500).json({ error: "TWITCH_REFRESH_FAILED" });
+  }
+});
+
 // Debug endpoint to help verify session/cookie presence and fallback behavior
 router.get("/debug", async (req, res) => {
   try {

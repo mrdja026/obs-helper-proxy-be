@@ -344,6 +344,20 @@ class TwitchChatService {
               (chatMessage.user.badges || []).map((b) => b.id).join(" ")
             );
 
+          // !commands
+          if (/^!commands\b/i.test(text)) {
+            const reply =
+              "Commands: !song <title> — request a song. Example: !song Imagine";
+            this.sendMessage(
+              new SendMessageRequest({
+                channel: channelName,
+                message: reply,
+                replyToMessageId: chatMessage.id,
+              })
+            );
+            return;
+          }
+
           // !song <title>
           if (text.toLowerCase().startsWith("!song ")) {
             const title = text.slice(6).trim();

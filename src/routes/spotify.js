@@ -24,6 +24,34 @@ router.post("/auth/exchange", async (req, res) => {
   }
 });
 
+// Attempt to refresh access token if expired
+router.post("/refresh", async (_req, res) => {
+  try {
+    await spotify.ensureAccessToken();
+    return res.json({ ok: true });
+  } catch (e) {
+    const msg = e?.message || "refresh_failed";
+    if (
+      msg === "spotify_not_authenticated" ||
+      msg === "spotify_refresh_failed"
+    ) {
+      return res.status(401).json({ code: "SPOTIFY_AUTH_REQUIRED" });
+    }
+    return res.status(500).json({ error: "refresh_failed" });
+  }
+});
+
+// Clear stored Spotify tokens from file storage
+router.post("/clear-tokens", async (_req, res) => {
+  try {
+    const ok = await fileStore.clearTokens();
+    if (!ok) return res.status(500).json({ error: "clear_failed" });
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).json({ error: "clear_failed" });
+  }
+});
+
 // Enqueue matched track on user's active device
 router.post("/queue", async (req, res) => {
   try {

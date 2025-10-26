@@ -286,6 +286,79 @@ class TokenService {
       file: fileStats,
     };
   }
+
+  /**
+   * Refresh Twitch tokens using stored refresh token (session preferred, file fallback)
+   * @param {Object} session - Express session object
+   * @returns {Promise<{ok:boolean, expiresAt?:string}>}
+   */
+  static async refreshTokens(session) {
+    try {
+      const config = require("../config/config");
+      const fetch = (await import("node-fetch")).default;
+
+      // Prefer session refresh token, fallback to file
+      const current = await this.getTokens(session);
+      const refreshToken = current?.refreshToken;
+      if (!refreshToken) {
+        logger.warn("No Twitch refresh token available for refresh");
+        return { ok: false };
+      }
+
+      const params = new URLSearchParams();
+      params.set("grant_type", "refresh_token");
+      params.set("refresh_token", refreshToken);
+      params.set(
+        "client_id",
+        config.twitch.clientId || process.env.TWITCH_CLIENT_ID || ""
+      );
+      params.set(
+        "client_secret",
+        config.twitch.clientSecret || process.env.TWITCH_CLIENT_SECRET || ""
+      );
+
+      const resp = await fetch("https://id.twitch.tv/oauth2/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: params.toString(),
+      });
+
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => "");
+        logger.error("Twitch refresh failed", {
+          status: resp.status,
+          body: text,
+        });
+        return { ok: false };
+      }
+
+      const body = await resp.json();
+      const newAccess = body.access_token;
+      const newRefresh = body.refresh_token || refreshToken;
+      const expiresIn = body.expires_in || 3600;
+      const scope = Array.isArray(body.scope)
+        ? body.scope
+        : current?.scope || [];
+      const tokenType = body.token_type || current?.tokenType || "bearer";
+
+      // Update session and file
+      await this.updateTokens(session, {
+        accessToken: newAccess,
+        refreshToken: newRefresh,
+        expiresIn,
+        scope,
+        tokenType,
+      });
+
+      const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+      return { ok: true, expiresAt };
+    } catch (error) {
+      logger.error("Unexpected error during Twitch token refresh", {
+        error: error.message,
+      });
+      return { ok: false };
+    }
+  }
 }
 
 module.exports = TokenService;

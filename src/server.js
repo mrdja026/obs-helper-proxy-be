@@ -77,6 +77,7 @@ const server = app.listen(config.port, () => {
       ? require("./services/obsConnectionMock")
       : require("./services/obsConnection");
     const chatSvc = require("./services/twitchChatService");
+    const eventSubSvc = require("./services/twitchEventSubService");
 
     (async () => {
       try {
@@ -100,6 +101,20 @@ const server = app.listen(config.port, () => {
             logger.error("Chat bootstrap initialize failed", {
               error: e.message,
             });
+          }
+
+          // Initialize EventSub WS (fire-and-forget)
+          try {
+            const res = await eventSubSvc.initialize(null);
+            if (res?.success) {
+              logger.info("EventSub WS initialized on server start");
+            } else {
+              logger.warn("EventSub WS init failed/skipped", {
+                reason: res?.error,
+              });
+            }
+          } catch (e) {
+            logger.error("EventSub bootstrap failed", { error: e.message });
           }
         }
       } catch (e) {
