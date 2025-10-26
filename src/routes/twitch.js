@@ -149,12 +149,33 @@ router.get("/status", async (req, res) => {
         authenticated: true,
         method: "session",
         user: req.user || null,
+        hasRefresh: true,
       });
     }
 
     // Fallback to token service (file/memory cache)
     const tokens = await TokenService.getTokens(req.session);
     if (tokens) {
+      const now = Date.now();
+      const exp = tokens.expiresAt ? new Date(tokens.expiresAt).getTime() : 0;
+      const isExpired = exp && now > exp;
+      const isNearExpiry = exp && exp - now < 60 * 1000; // 60s
+
+      // Attempt a refresh if expired or near expiry
+      if (isExpired || isNearExpiry) {
+        const refreshed = await TokenService.refreshWithStoredTokens(req.session);
+        if (refreshed?.ok) {
+          // ensure session save before reporting session method on next checks
+          await new Promise((resolve) => req.session.save(() => resolve()));
+          return res.json({
+            authenticated: true,
+            method: "session",
+            user: req.user || tokens.user || null,
+            hasRefresh: true,
+          });
+        }
+      }
+
       return res.json({
         authenticated: true,
         method: tokens.user ? "token_fallback" : "token_unknown",
@@ -164,6 +185,7 @@ router.get("/status", async (req, res) => {
           scope: tokens.scope || [],
           tokenType: tokens.tokenType || "bearer",
         },
+        hasRefresh: !!tokens.refreshToken,
       });
     }
 
@@ -184,8 +206,10 @@ router.get("/status", async (req, res) => {
 router.post("/refresh", async (req, res) => {
   const logger = require("../utils/logger");
   try {
-    const result = await TokenService.refreshTokens(req.session);
+    const result = await TokenService.refreshWithStoredTokens(req.session);
     if (result?.ok) {
+      // Persist session to ensure refreshed tokens are saved
+      await new Promise((resolve) => req.session.save(() => resolve()));
       return res.json({ ok: true, expiresAt: result.expiresAt || null });
     }
     return res.status(401).json({ code: "TWITCH_AUTH_REQUIRED" });

@@ -359,6 +359,40 @@ class TokenService {
       return { ok: false };
     }
   }
+
+  /**
+   * Refresh using stored tokens (session preferred, file fallback). If the session
+   * does not yet contain twitchTokens, seed it from stored tokens to allow update.
+   * @param {Object} session - Express session object
+   * @returns {Promise<{ok:boolean, expiresAt?:string}>}
+   */
+  static async refreshWithStoredTokens(session) {
+    try {
+      const tokens = await this.getTokens(session);
+      if (!tokens || !tokens.refreshToken) {
+        logger.warn("refreshWithStoredTokens: no tokens or refresh token");
+        return { ok: false };
+      }
+
+      // Seed session tokens if missing so updateTokens() can persist
+      if (!session.twitchTokens) {
+        session.twitchTokens = {
+          accessToken: tokens.accessToken || null,
+          refreshToken: tokens.refreshToken,
+          // force immediate refresh semantics
+          expiresAt: new Date(0),
+          scope: tokens.scope || [],
+          tokenType: tokens.tokenType || "bearer",
+          user: tokens.user || null,
+        };
+      }
+
+      return await this.refreshTokens(session);
+    } catch (e) {
+      logger.error("refreshWithStoredTokens failed", { error: e.message });
+      return { ok: false };
+    }
+  }
 }
 
 module.exports = TokenService;

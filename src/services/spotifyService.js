@@ -110,6 +110,92 @@ async function addToPlaybackQueue(uri) {
   }
 }
 
+async function startPlayback(uri, deviceId) {
+  const client = await ensureAccessToken();
+  try {
+    const options = deviceId ? { device_id: deviceId } : {};
+    await client.play({ ...options, uris: [uri], position_ms: 0 });
+    return true;
+  } catch (e) {
+    logger.error("Spotify play failed", { error: e.message });
+    throw e;
+  }
+}
+
+async function getCurrentlyPlaying({ market, additionalTypes } = {}) {
+  const client = await ensureAccessToken();
+  try {
+    const params = {};
+    if (market) params.market = market;
+    if (additionalTypes) params.additional_types = additionalTypes;
+    const res = await client.getMyCurrentPlayingTrack(params);
+    const body = res?.body || null;
+    if (!body || body.is_playing !== true || !body.item) {
+      return { isPlaying: false };
+    }
+
+    const item = body.item || {};
+    const album = item.album || {};
+    const artists = Array.isArray(item.artists) ? item.artists : [];
+
+    const normalized = {
+      isPlaying: true,
+      progressMs:
+        typeof body.progress_ms === "number" ? body.progress_ms : null,
+      timestamp: typeof body.timestamp === "number" ? body.timestamp : null,
+      item: {
+        id: item.id || null,
+        uri: item.uri || null,
+        name: item.name || null,
+        durationMs:
+          typeof item.duration_ms === "number" ? item.duration_ms : null,
+        explicit: !!item.explicit,
+        popularity:
+          typeof item.popularity === "number" ? item.popularity : null,
+        previewUrl: item.preview_url || null,
+        album: {
+          id: album.id || null,
+          name: album.name || null,
+          images: Array.isArray(album.images)
+            ? album.images.map((img) => ({
+                url: img?.url || null,
+                width: typeof img?.width === "number" ? img.width : null,
+                height: typeof img?.height === "number" ? img.height : null,
+              }))
+            : [],
+        },
+        artists: artists.map((a) => ({
+          id: a?.id || null,
+          name: a?.name || null,
+        })),
+      },
+      device: body.device
+        ? {
+            id: body.device.id || null,
+            name: body.device.name || null,
+            type: body.device.type || null,
+            is_active: !!body.device.is_active,
+            volume_percent:
+              typeof body.device.volume_percent === "number"
+                ? body.device.volume_percent
+                : null,
+          }
+        : null,
+      shuffleState:
+        typeof body.shuffle_state === "boolean" ? body.shuffle_state : null,
+      repeatState: body.repeat_state || null,
+      context: body.context
+        ? { type: body.context.type || null, uri: body.context.uri || null }
+        : null,
+    };
+
+    return normalized;
+  } catch (e) {
+    logger.error("Spotify getCurrentlyPlaying failed", { error: e.message });
+    throw e;
+  }
+}
+
 async function getPlaybackSnapshot() {
   const client = await ensureAccessToken();
   try {
@@ -225,6 +311,8 @@ module.exports = {
   searchBestTrack,
   getPlaybackState,
   addToPlaybackQueue,
+  startPlayback,
   exchangeCodeForTokens,
   getPlaybackSnapshot,
+  getCurrentlyPlaying,
 };

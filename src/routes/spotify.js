@@ -82,6 +82,64 @@ router.post("/queue", async (req, res) => {
   }
 });
 
+// Play matched track immediately on user's active device
+router.post("/play-now", async (req, res) => {
+  try {
+    const { itemId, index, deviceId } = req.body || {};
+    let item = null;
+    if (itemId) {
+      item = songQueue.getAll().find((i) => i.id === itemId);
+    } else if (Number.isInteger(index)) {
+      const list = songQueue.getAll();
+      item = list[index] || null;
+    }
+    if (!item) return res.status(404).json({ error: "not_found" });
+    if (item.matchStatus !== "matched" || !item.spotify?.uri) {
+      return res.status(409).json({ error: "not_matched" });
+    }
+
+    const state = await spotify.getPlaybackState();
+    const isActive = !!(state && state.device && state.device.is_active);
+    if (!isActive && !deviceId) {
+      return res.status(409).json({ error: "no_active_device" });
+    }
+
+    await spotify.startPlayback(item.spotify.uri, deviceId);
+    return res.json({ ok: true });
+  } catch (e) {
+    logger.error("Spotify play-now failed", { error: e.message });
+    return res.status(500).json({ error: "play_failed" });
+  }
+});
+
+// Currently playing (rich) snapshot
+router.get("/currently-playing", async (req, res) => {
+  try {
+    const market =
+      typeof req.query.market === "string" ? req.query.market : undefined;
+    const additionalTypes =
+      typeof req.query.additional_types === "string"
+        ? req.query.additional_types
+        : undefined;
+    try {
+      await spotify.ensureAccessToken();
+    } catch (e) {
+      const msg = e?.message || "spotify_not_authenticated";
+      if (
+        msg === "spotify_not_authenticated" ||
+        msg === "spotify_refresh_failed"
+      ) {
+        return res.status(401).json({ code: "SPOTIFY_AUTH_REQUIRED" });
+      }
+    }
+    const data = await spotify.getCurrentlyPlaying({ market, additionalTypes });
+    return res.json(data);
+  } catch (e) {
+    logger.error("Spotify currently-playing failed", { error: e.message });
+    return res.status(500).json({ error: "currently_playing_failed" });
+  }
+});
+
 // Spotify auth status
 router.get("/status", async (_req, res) => {
   try {

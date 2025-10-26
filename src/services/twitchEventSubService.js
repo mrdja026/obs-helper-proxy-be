@@ -31,7 +31,7 @@ class TwitchEventSubService extends EventEmitter {
 
     try {
       const tokens = await TokenService.getTokens(session);
-      const user = TokenService.getUserFromTokens(session) || tokens?.user;
+      const user = (await TokenService.getUserFromTokens(session)) || tokens?.user;
       if (!tokens || !user) {
         throw new Error("Missing tokens or user for EventSub initialization");
       }
@@ -76,9 +76,8 @@ class TwitchEventSubService extends EventEmitter {
       // Create WS listener
       this.listener = new EventSubWsListener({ apiClient: this.apiClient });
 
-      // Resolve broadcaster & moderator IDs
-      const broadcaster = await this.apiClient.users.getMe();
-      const broadcasterId = broadcaster?.id;
+      // Resolve broadcaster & moderator IDs from stored tokens
+      const broadcasterId = user?.id;
       const moderatorId = broadcasterId; // self-moderation is allowed
       if (!broadcasterId) {
         throw new Error("Unable to resolve broadcaster ID for EventSub");
