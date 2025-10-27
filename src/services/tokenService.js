@@ -64,18 +64,24 @@ class TokenService {
    * @param {Object} session - Express session object
    * @returns {Promise<Object|null>} Token object or null if not found
    */
-  static async getTokens(session) {
+  static async getTokens(session, options = {}) {
+    const allowExpired = !!options.allowExpired;
+
     // First try session
     if (session && session.twitchTokens) {
       const tokens = session.twitchTokens;
+      const expired = this.isTokenExpired(tokens);
 
-      // Check if token is expired
-      if (tokens.expiresAt && new Date() > new Date(tokens.expiresAt)) {
-        logger.warn("Access token has expired", {
-          userId: tokens.user?.id,
-          expiredAt: tokens.expiresAt,
-        });
-      } else {
+      if (!expired) {
+        return tokens;
+      }
+
+      logger.warn("Access token in session has expired", {
+        userId: tokens.user?.id,
+        expiredAt: tokens.expiresAt,
+      });
+
+      if (allowExpired && this.hasRefreshToken(tokens)) {
         return tokens;
       }
     }
@@ -84,24 +90,44 @@ class TokenService {
     const storageMethod = config.twitch.tokenStorage.method;
 
     if (storageMethod === "file" || storageMethod === "hybrid") {
-      const fileTokens = await fileTokenStorage.getTokens();
+      const fileTokens = await fileTokenStorage.getTokens({ allowExpired });
       if (fileTokens) {
-        logger.info("Using tokens from file storage", {
-          userId: fileTokens.user?.id,
-          username: fileTokens.user?.username,
-        });
-        return fileTokens;
+        if (this.isTokenExpired(fileTokens)) {
+          if (allowExpired && this.hasRefreshToken(fileTokens)) {
+            logger.warn("Using expired tokens from file storage (allowExpired=true)", {
+              userId: fileTokens.user?.id,
+              username: fileTokens.user?.username,
+              expiresAt: fileTokens.expiresAt,
+            });
+            return fileTokens;
+          }
+        } else {
+          logger.info("Using tokens from file storage", {
+            userId: fileTokens.user?.id,
+            username: fileTokens.user?.username,
+          });
+          return fileTokens;
+        }
       }
     }
 
     if (storageMethod === "session" || storageMethod === "hybrid") {
       const cachedTokens = tokenCache.getLatestTokens();
       if (cachedTokens) {
-        logger.info("Using tokens from memory cache", {
-          userId: cachedTokens.user?.id,
-          username: cachedTokens.user?.username,
-        });
-        return cachedTokens;
+        if (!this.isTokenExpired(cachedTokens)) {
+          logger.info("Using tokens from memory cache", {
+            userId: cachedTokens.user?.id,
+            username: cachedTokens.user?.username,
+          });
+          return cachedTokens;
+        }
+        if (allowExpired && this.hasRefreshToken(cachedTokens)) {
+          logger.warn("Using expired tokens from memory cache (allowExpired=true)", {
+            userId: cachedTokens.user?.id,
+            username: cachedTokens.user?.username,
+          });
+          return cachedTokens;
+        }
       }
     }
 
@@ -134,7 +160,7 @@ class TokenService {
    * @returns {Promise<String|null>} Refresh token or null if not found
    */
   static async getRefreshToken(session) {
-    const tokens = await this.getTokens(session);
+    const tokens = await this.getTokens(session, { allowExpired: true });
     return tokens ? tokens.refreshToken : null;
   }
 
@@ -144,7 +170,7 @@ class TokenService {
    * @returns {Promise<Object|null>} User information or null if not found
    */
   static async getUserFromTokens(session) {
-    const tokens = await this.getTokens(session);
+    const tokens = await this.getTokens(session, { allowExpired: true });
     return tokens ? tokens.user : null;
   }
 
@@ -224,6 +250,59 @@ class TokenService {
   }
 
   /**
+   * Determine whether a token payload is already expired
+   * @param {Object} tokens
+   * @returns {Boolean}
+   */
+  static isTokenExpired(tokens) {
+    if (!tokens || !tokens.expiresAt) {
+      return false;
+    }
+
+    const expiresAt =
+      tokens.expiresAt instanceof Date
+        ? tokens.expiresAt.getTime()
+        : new Date(tokens.expiresAt).getTime();
+
+    if (!Number.isFinite(expiresAt)) {
+      return false;
+    }
+
+    return Date.now() >= expiresAt;
+  }
+
+  /**
+   * Milliseconds remaining until expiry (negative when already expired)
+   * @param {Object} tokens
+   * @returns {Number|null}
+   */
+  static msUntilExpiry(tokens) {
+    if (!tokens || !tokens.expiresAt) {
+      return null;
+    }
+
+    const expiresAt =
+      tokens.expiresAt instanceof Date
+        ? tokens.expiresAt.getTime()
+        : new Date(tokens.expiresAt).getTime();
+
+    if (!Number.isFinite(expiresAt)) {
+      return null;
+    }
+
+    return expiresAt - Date.now();
+  }
+
+  /**
+   * Whether the payload contains a refresh token we can use
+   * @param {Object} tokens
+   * @returns {Boolean}
+   */
+  static hasRefreshToken(tokens) {
+    return !!(tokens && tokens.refreshToken);
+  }
+
+  /**
    * Get tokens from cache (fallback method)
    * @param {String} userId - User ID (optional)
    * @returns {Promise<Object|null>} Token data or null
@@ -258,19 +337,26 @@ class TokenService {
    * @returns {Promise<Boolean>} True if valid tokens exist in cache
    */
   static async cacheHasValidTokens() {
-    const storageMethod = config.twitch.tokenStorage.method;
-
-    if (storageMethod === "session" || storageMethod === "hybrid") {
-      if (tokenCache.hasValidTokens()) {
-        return true;
-      }
+    const tokens = await this.getTokens(null, { allowExpired: true });
+    if (!tokens) {
+      return false;
     }
 
-    if (storageMethod === "file" || storageMethod === "hybrid") {
-      return await fileTokenStorage.hasValidTokens();
+    if (!this.isTokenExpired(tokens)) {
+      return true;
     }
 
-    return false;
+    if (!this.hasRefreshToken(tokens)) {
+      return false;
+    }
+
+    const bootstrapSession = {
+      id: "token-service-bootstrap",
+      twitchTokens: null,
+    };
+
+    const refreshed = await this.refreshWithStoredTokens(bootstrapSession);
+    return !!(refreshed && refreshed.ok);
   }
 
   /**
@@ -298,7 +384,7 @@ class TokenService {
       const fetch = (await import("node-fetch")).default;
 
       // Prefer session refresh token, fallback to file
-      const current = await this.getTokens(session);
+      const current = await this.getTokens(session, { allowExpired: true });
       const refreshToken = current?.refreshToken;
       if (!refreshToken) {
         logger.warn("No Twitch refresh token available for refresh");
@@ -368,7 +454,7 @@ class TokenService {
    */
   static async refreshWithStoredTokens(session) {
     try {
-      const tokens = await this.getTokens(session);
+      const tokens = await this.getTokens(session, { allowExpired: true });
       if (!tokens || !tokens.refreshToken) {
         logger.warn("refreshWithStoredTokens: no tokens or refresh token");
         return { ok: false };
@@ -393,6 +479,79 @@ class TokenService {
       return { ok: false };
     }
   }
+}
+
+const AUTO_REFRESH_INTERVAL_MS = Number(
+  process.env.TWITCH_TOKEN_AUTO_REFRESH_INTERVAL_MS || 120000
+);
+const AUTO_REFRESH_THRESHOLD_MS = Number(
+  process.env.TWITCH_TOKEN_AUTO_REFRESH_THRESHOLD_MS || 5 * 60 * 1000
+);
+const shouldAutoRefresh =
+  AUTO_REFRESH_INTERVAL_MS > 0 &&
+  (config.twitch.tokenStorage.method === "file" ||
+    config.twitch.tokenStorage.method === "hybrid");
+
+if (shouldAutoRefresh) {
+  const autoRefreshSession = {
+    id: "token-service-auto-refresh",
+    twitchTokens: null,
+    save(callback) {
+      if (typeof callback === "function") {
+        callback();
+      }
+    },
+  };
+
+  let autoRefreshRunning = false;
+
+  const runAutoRefresh = async () => {
+    if (autoRefreshRunning) {
+      return;
+    }
+    autoRefreshRunning = true;
+    try {
+      const tokens = await TokenService.getTokens(autoRefreshSession, {
+        allowExpired: true,
+      });
+      if (!tokens || !TokenService.hasRefreshToken(tokens)) {
+        return;
+      }
+
+      const msUntilExpiry = TokenService.msUntilExpiry(tokens);
+      if (msUntilExpiry === null) {
+        return;
+      }
+
+      if (msUntilExpiry > AUTO_REFRESH_THRESHOLD_MS) {
+        return;
+      }
+
+      const result = await TokenService.refreshWithStoredTokens(
+        autoRefreshSession
+      );
+      if (result?.ok) {
+        logger.info("Auto-refreshed Twitch access token", {
+          expiresAt: result.expiresAt || null,
+        });
+      } else {
+        logger.warn("Auto refresh attempt for Twitch tokens did not succeed");
+      }
+    } catch (error) {
+      logger.error("Auto refresh loop encountered an error", {
+        error: error.message,
+      });
+    } finally {
+      autoRefreshRunning = false;
+    }
+  };
+
+  const interval = setInterval(runAutoRefresh, AUTO_REFRESH_INTERVAL_MS);
+  if (typeof interval.unref === "function") {
+    interval.unref();
+  }
+
+  runAutoRefresh().catch(() => {});
 }
 
 module.exports = TokenService;

@@ -143,8 +143,8 @@ router.get("/profile", requireAuth, (req, res) => {
 // Get authentication status
 router.get("/status", async (req, res) => {
   try {
-    // First prefer Passport session auth
-    if (req.isAuthenticated && req.isAuthenticated()) {
+    const isSessionAuth = req.isAuthenticated && req.isAuthenticated();
+    if (isSessionAuth) {
       return res.json({
         authenticated: true,
         method: "session",
@@ -153,45 +153,65 @@ router.get("/status", async (req, res) => {
       });
     }
 
-    // Fallback to token service (file/memory cache)
-    const tokens = await TokenService.getTokens(req.session);
-    if (tokens) {
-      const now = Date.now();
-      const exp = tokens.expiresAt ? new Date(tokens.expiresAt).getTime() : 0;
-      const isExpired = exp && now > exp;
-      const isNearExpiry = exp && exp - now < 60 * 1000; // 60s
-
-      // Attempt a refresh if expired or near expiry
-      if (isExpired || isNearExpiry) {
-        const refreshed = await TokenService.refreshWithStoredTokens(req.session);
-        if (refreshed?.ok) {
-          // ensure session save before reporting session method on next checks
-          await new Promise((resolve) => req.session.save(() => resolve()));
-          return res.json({
-            authenticated: true,
-            method: "session",
-            user: req.user || tokens.user || null,
-            hasRefresh: true,
-          });
-        }
-      }
-
+    const tokens = await TokenService.getTokens(req.session, { allowExpired: true });
+    if (!tokens) {
       return res.json({
-        authenticated: true,
-        method: tokens.user ? "token_fallback" : "token_unknown",
-        user: tokens.user || null,
-        tokenInfo: {
-          expiresAt: tokens.expiresAt || null,
-          scope: tokens.scope || [],
-          tokenType: tokens.tokenType || "bearer",
-        },
-        hasRefresh: !!tokens.refreshToken,
+        authenticated: false,
+        user: null,
       });
     }
 
+    const msUntilExpiry = TokenService.msUntilExpiry(tokens);
+    const isExpired = TokenService.isTokenExpired(tokens);
+    const isNearExpiry = msUntilExpiry !== null && msUntilExpiry < 60 * 1000;
+    const hasRefresh = TokenService.hasRefreshToken(tokens);
+
+    if ((isExpired || isNearExpiry) && hasRefresh) {
+      const refreshed = await TokenService.refreshWithStoredTokens(req.session);
+      if (refreshed?.ok) {
+        if (req.session && typeof req.session.save === "function") {
+          await new Promise((resolve, reject) =>
+            req.session.save((err) => (err ? reject(err) : resolve()))
+          ).catch((saveError) => {
+            const logger = require("../utils/logger");
+            logger.warn("Session save failed after token refresh", {
+              error: saveError?.message,
+            });
+          });
+        }
+        const refreshedTokens = await TokenService.getTokens(req.session);
+        return res.json({
+          authenticated: true,
+          method: isSessionAuth ? "session" : refreshedTokens?.user ? "token_fallback" : "token_unknown",
+          user: req.user || refreshedTokens?.user || tokens.user || null,
+          tokenInfo: refreshedTokens
+            ? {
+                expiresAt: refreshedTokens.expiresAt || null,
+                scope: refreshedTokens.scope || [],
+                tokenType: refreshedTokens.tokenType || "bearer",
+              }
+            : undefined,
+          hasRefresh: true,
+          refreshed: true,
+        });
+      }
+    }
+
     return res.json({
-      authenticated: false,
-      user: null,
+      authenticated: !isExpired,
+      method: !isExpired && isSessionAuth
+        ? "session"
+        : tokens.user
+        ? "token_fallback"
+        : "token_unknown",
+      user: tokens.user || null,
+      tokenInfo: {
+        expiresAt: tokens.expiresAt || null,
+        scope: tokens.scope || [],
+        tokenType: tokens.tokenType || "bearer",
+      },
+      hasRefresh,
+      needsReauth: isExpired && hasRefresh,
     });
   } catch (err) {
     const logger = require("../utils/logger");
@@ -209,7 +229,16 @@ router.post("/refresh", async (req, res) => {
     const result = await TokenService.refreshWithStoredTokens(req.session);
     if (result?.ok) {
       // Persist session to ensure refreshed tokens are saved
-      await new Promise((resolve) => req.session.save(() => resolve()));
+      if (req.session && typeof req.session.save === "function") {
+        await new Promise((resolve, reject) =>
+          req.session.save((err) => (err ? reject(err) : resolve()))
+        ).catch((saveError) => {
+          const logger = require("../utils/logger");
+          logger.warn("Session save failed after manual refresh", {
+            error: saveError?.message,
+          });
+        });
+      }
       return res.json({ ok: true, expiresAt: result.expiresAt || null });
     }
     return res.status(401).json({ code: "TWITCH_AUTH_REQUIRED" });
@@ -226,7 +255,7 @@ router.get("/debug", async (req, res) => {
     const hasSession = !!req.session;
     const isAuth =
       typeof req.isAuthenticated === "function" ? req.isAuthenticated() : false;
-    const tokens = await TokenService.getTokens(req.session);
+    const tokens = await TokenService.getTokens(req.session, { allowExpired: true });
 
     return res.json({
       session: {
@@ -273,7 +302,7 @@ router.get("/me", async (req, res) => {
         user: req.user || null,
       });
     }
-    const tokens = await TokenService.getTokens(req.session);
+    const tokens = await TokenService.getTokens(req.session, { allowExpired: true });
     if (tokens) {
       return res.json({
         authenticated: true,
@@ -302,7 +331,7 @@ router.post("/auth/bootstrap", async (req, res) => {
       });
     }
 
-    const tokens = await TokenService.getTokens(req.session);
+    const tokens = await TokenService.getTokens(req.session, { allowExpired: true });
     if (!tokens || !tokens.user) {
       return res
         .status(401)

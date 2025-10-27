@@ -59,7 +59,8 @@ class FileTokenStorage {
    * Get tokens from file
    * @returns {Object|null} Token object or null if not found/expired
    */
-  async getTokens() {
+  async getTokens(options = {}) {
+    const allowExpired = !!options.allowExpired;
     try {
       // If we have recently read tokens, return them
       if (
@@ -67,7 +68,17 @@ class FileTokenStorage {
         this.lastRead &&
         Date.now() - this.lastRead < this.readInterval
       ) {
-        return this.isTokenValid(this.tokens) ? this.tokens : null;
+        if (this.isTokenValid(this.tokens)) {
+          return this.tokens;
+        }
+        if (allowExpired && this.isRefreshable(this.tokens)) {
+          logger.warn("Tokens in cache are expired but allowExpired=true", {
+            userId: this.tokens.user?.id,
+            expiresAt: this.tokens.expiresAt,
+          });
+          return this.tokens;
+        }
+        return null;
       }
 
       // Try to read from file
@@ -89,6 +100,16 @@ class FileTokenStorage {
           userId: tokenData.user?.id,
           expiresAt: tokenData.expiresAt,
         });
+        if (allowExpired && this.isRefreshable(tokenData)) {
+          logger.warn(
+            "Returning expired tokens due to allowExpired=true (refresh will be attempted)",
+            {
+              userId: tokenData.user?.id,
+              expiresAt: tokenData.expiresAt,
+            }
+          );
+          return tokenData;
+        }
         return null;
       }
     } catch (error) {
@@ -113,6 +134,20 @@ class FileTokenStorage {
     }
 
     return new Date() < new Date(tokenData.expiresAt);
+  }
+
+  /**
+   * Check if expired tokens can still be refreshed
+   * @param {Object} tokenData
+   * @returns {Boolean}
+   */
+  isRefreshable(tokenData) {
+    return (
+      !!tokenData &&
+      !!tokenData.refreshToken &&
+      !!tokenData.accessToken &&
+      !!tokenData.user
+    );
   }
 
   /**
