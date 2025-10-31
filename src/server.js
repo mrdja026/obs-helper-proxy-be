@@ -1,4 +1,7 @@
 require("dotenv").config();
+const fs = require("fs");
+const path = require("path");
+const https = require("https");
 const express = require("express");
 const cors = require("cors");
 const compression = require("compression");
@@ -11,6 +14,30 @@ const requestLogger = require("./middleware/requestLogger");
 const { securityHeaders } = require("./middleware/security");
 const logger = require("./utils/logger");
 const config = require("./config/config");
+
+const resolveTlsCredentials = () => {
+  const keyPath = process.env.HTTPS_KEY_PATH;
+  const certPath = process.env.HTTPS_CERT_PATH;
+  if (!keyPath || !certPath) {
+    throw new Error(
+      "HTTPS_KEY_PATH and HTTPS_CERT_PATH must be configured for HTTPS server",
+    );
+  }
+
+  const resolve = (input) =>
+    path.isAbsolute(input) ? input : path.resolve(process.cwd(), input);
+
+  try {
+    return {
+      key: fs.readFileSync(resolve(keyPath)),
+      cert: fs.readFileSync(resolve(certPath)),
+    };
+  } catch (error) {
+    throw new Error(
+      `Failed to read HTTPS credentials (${error?.message ?? "unknown error"})`,
+    );
+  }
+};
 
 const app = express();
 
@@ -37,9 +64,8 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      // Use 'lax' for localhost dev to ensure session persists across OAuth redirects; switch to 'none' + secure:true in production with cross-origin
-      sameSite: "lax",
-      secure: false, // set to true when behind HTTPS
+      sameSite: "none",
+      secure: true,
     },
   })
 );
@@ -54,9 +80,12 @@ app.use("/api", apiRoutes);
 // Error handling
 app.use(errorHandler);
 
-// Start server
-const server = app.listen(config.port, () => {
-  logger.info(`Server is running on port ${config.port}`);
+// Start server (HTTPS only)
+const credentials = resolveTlsCredentials();
+const server = https.createServer(credentials, app);
+
+server.listen(config.port, () => {
+  logger.info(`HTTPS server is running on port ${config.port}`);
 
   // Setup WebSocket after server is fully started
   try {

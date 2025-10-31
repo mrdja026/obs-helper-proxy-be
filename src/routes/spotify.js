@@ -4,6 +4,7 @@ const logger = require("../utils/logger");
 const spotify = require("../services/spotifyService");
 const songQueue = require("../services/songQueue");
 const fileStore = require("../services/spotifyFileTokenStorage");
+const websocket = require("../services/websocket");
 
 // Exchange PKCE auth code for tokens and store refresh token
 router.post("/auth/exchange", async (req, res) => {
@@ -13,6 +14,8 @@ router.post("/auth/exchange", async (req, res) => {
       return res.status(400).json({ error: "bad_request" });
     }
     await spotify.exchangeCodeForTokens({ code, codeVerifier, redirectUri });
+    await websocket.broadcastSpotifyStatus();
+    await websocket.broadcastSpotifyPlayback();
     return res.json({ ok: true });
   } catch (e) {
     logger.error("Spotify auth exchange failed", { error: e.message });
@@ -28,6 +31,8 @@ router.post("/auth/exchange", async (req, res) => {
 router.post("/refresh", async (_req, res) => {
   try {
     await spotify.ensureAccessToken();
+    await websocket.broadcastSpotifyStatus();
+    await websocket.broadcastSpotifyPlayback();
     return res.json({ ok: true });
   } catch (e) {
     const msg = e?.message || "refresh_failed";
@@ -46,6 +51,12 @@ router.post("/clear-tokens", async (_req, res) => {
   try {
     const ok = await fileStore.clearTokens();
     if (!ok) return res.status(500).json({ error: "clear_failed" });
+    await websocket.broadcastSpotifyStatus();
+    await websocket.broadcastSpotifyPlayback({
+      playback: null,
+      devices: [],
+      fetchedAt: new Date().toISOString(),
+    });
     return res.json({ ok: true });
   } catch (e) {
     return res.status(500).json({ error: "clear_failed" });
@@ -75,6 +86,7 @@ router.post("/queue", async (req, res) => {
     }
 
     await spotify.addToPlaybackQueue(item.spotify.uri);
+    await websocket.broadcastSpotifyPlayback();
     return res.json({ ok: true });
   } catch (e) {
     logger.error("Spotify queue failed", { error: e.message });
@@ -105,6 +117,7 @@ router.post("/play-now", async (req, res) => {
     }
 
     await spotify.startPlayback(item.spotify.uri, deviceId);
+    await websocket.broadcastSpotifyPlayback();
     return res.json({ ok: true });
   } catch (e) {
     logger.error("Spotify play-now failed", { error: e.message });
@@ -133,6 +146,7 @@ router.get("/currently-playing", async (req, res) => {
       }
     }
     const data = await spotify.getCurrentlyPlaying({ market, additionalTypes });
+    await websocket.broadcastSpotifyPlayback();
     return res.json(data);
   } catch (e) {
     logger.error("Spotify currently-playing failed", { error: e.message });

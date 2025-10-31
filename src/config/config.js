@@ -1,7 +1,41 @@
 require("dotenv").config();
 
+const sanitizeUrl = (value) =>
+  typeof value === "string" ? value.trim().replace(/\/+$/, "") : null;
+
+const expandOrigins = (value) =>
+  typeof value === "string"
+    ? value
+        .split(",")
+        .map((item) => sanitizeUrl(item))
+        .filter(Boolean)
+    : [];
+
+const publicBaseUrl =
+  sanitizeUrl(process.env.PUBLIC_BASE_URL) || "https://localhost:3001";
+const lanBaseUrl = sanitizeUrl(process.env.PUBLIC_BASE_URL_LAN);
+
+const baseHttpVariant = publicBaseUrl.replace(/^https:/, "http:");
+const lanHttpVariant = lanBaseUrl ? lanBaseUrl.replace(/^https:/, "http:") : null;
+
+const corsDefaults = [
+  publicBaseUrl,
+  baseHttpVariant,
+  lanBaseUrl,
+  lanHttpVariant,
+  ...expandOrigins(process.env.CORS_ADDITIONAL_ORIGINS),
+  "http://localhost:8084",
+  "http://localhost:8081",
+  "http://localhost:8082",
+  "exp://192.168.0.234:8081",
+  "https://127.0.0.1:8443",
+];
+
+const uniqueOrigins = [...new Set(corsDefaults.filter(Boolean))];
+
 module.exports = {
   port: process.env.PORT || 3001,
+  publicBaseUrl,
   mockMode: process.env.MOCK_MODE === "true" || false,
   obs: {
     host: process.env.OBS_WS_HOST || "ws://127.0.0.1:4456",
@@ -10,15 +44,7 @@ module.exports = {
     micSceneName: process.env.OBS_MIC_SCENE_NAME || "sceen live",
   },
   cors: {
-    origin: [
-      "http://localhost:8084",
-      "http://localhost:8081",
-      "http://192.168.0.234:8081",
-      "http://localhost:8082",
-      "http://192.168.0.234:8082",
-      "exp://192.168.0.234:8081",
-      "https://127.0.0.1:8443",
-    ],
+    origin: uniqueOrigins,
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -35,8 +61,7 @@ module.exports = {
     redirectUriNative:
       process.env.SPOTIFY_REDIRECT_URI_NATIVE || "obshelper://oauthredirect",
     redirectUriWeb:
-      process.env.SPOTIFY_REDIRECT_URI_WEB ||
-      "https://127.0.0.1:8443/oauthredirect",
+      process.env.SPOTIFY_REDIRECT_URI_WEB || `${publicBaseUrl}/oauthredirect`,
     scopes: [
       "user-modify-playback-state",
       "user-read-playback-state",
@@ -55,7 +80,7 @@ module.exports = {
     clientSecret: process.env.TWITCH_CLIENT_SECRET,
     callbackUrl:
       process.env.TWITCH_CALLBACK_URL ||
-      "http://localhost:3001/api/twitch/auth/callback",
+      `${publicBaseUrl}/api/twitch/auth/callback`,
     scopes: [
       "user:read:email",
       "chat:read",

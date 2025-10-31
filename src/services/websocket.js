@@ -6,6 +6,9 @@ const twitchChatService = require("./twitchChatService");
 const twitchEventSubService = require("./twitchEventSubService");
 const { ChatEventTypes } = require("../dto/chatDto");
 const songQueue = require("./songQueue");
+const TokenService = require("./tokenService");
+const spotifyFileTokenStorage = require("./spotifyFileTokenStorage");
+const spotifyService = require("./spotifyService");
 
 // Conditionally require the appropriate connection service
 const obsConnection = config.mockMode
@@ -32,6 +35,133 @@ class WebSocketService {
       data: z.any(),
       timestamp: z.string().optional(),
     });
+  }
+
+  async buildTwitchStatus(session = null) {
+    try {
+      const tokens = await TokenService.getTokens(session, {
+        allowExpired: true,
+      });
+      if (!tokens) {
+        return {
+          authenticated: false,
+          user: null,
+          method: null,
+          hasRefresh: false,
+          expiresAt: null,
+        };
+      }
+
+      const expired = TokenService.isTokenExpired(tokens);
+      const hasRefresh = TokenService.hasRefreshToken(tokens);
+
+      return {
+        authenticated: !expired,
+        user: tokens.user || null,
+        method: !expired && session?.twitchTokens ? "session" : "token",
+        hasRefresh,
+        expiresAt: tokens.expiresAt || null,
+      };
+    } catch (error) {
+      logger.warn("Failed to build Twitch status payload", {
+        error: error.message,
+      });
+      return {
+        authenticated: false,
+        user: null,
+        method: null,
+        hasRefresh: false,
+        expiresAt: null,
+        error: "status_unavailable",
+      };
+    }
+  }
+
+  async buildSpotifyStatus() {
+    try {
+      const tokens = await spotifyFileTokenStorage.getTokens({
+        allowExpired: true,
+      });
+      if (!tokens) {
+        return {
+          authenticated: false,
+          hasRefresh: false,
+          expiresAt: null,
+        };
+      }
+
+      const expiresAt = tokens.expiresAt || null;
+      const authenticated =
+        typeof expiresAt === "string" ? new Date() < new Date(expiresAt) : false;
+
+      return {
+        authenticated,
+        hasRefresh: !!tokens.refreshToken,
+        expiresAt,
+      };
+    } catch (error) {
+      logger.warn("Failed to build Spotify status payload", {
+        error: error.message,
+      });
+      return {
+        authenticated: false,
+        hasRefresh: false,
+        expiresAt: null,
+        error: "status_unavailable",
+      };
+    }
+  }
+
+  async buildSpotifyPlayback() {
+    try {
+      const snapshot = await spotifyService.getPlaybackSnapshot();
+      if (!snapshot) {
+        return null;
+      }
+
+      return {
+        playback: snapshot.playback || null,
+        devices: snapshot.devices || [],
+        fetchedAt: snapshot.fetchedAt || new Date().toISOString(),
+      };
+    } catch (error) {
+      if (error?.message === "spotify_not_authenticated") {
+        return null;
+      }
+      logger.warn("Failed to build Spotify playback snapshot", {
+        error: error.message,
+      });
+      return null;
+    }
+  }
+
+  async sendBootstrapStatus(clientId) {
+    const [twitchStatus, spotifyStatus, playback] = await Promise.all([
+      this.buildTwitchStatus(),
+      this.buildSpotifyStatus(),
+      this.buildSpotifyPlayback(),
+    ]);
+
+    if (twitchStatus) {
+      this.sendToClient(clientId, {
+        type: "twitchAuthStatus",
+        data: twitchStatus,
+      });
+    }
+
+    if (spotifyStatus) {
+      this.sendToClient(clientId, {
+        type: "spotifyAuthStatus",
+        data: spotifyStatus,
+      });
+    }
+
+    if (playback) {
+      this.sendToClient(clientId, {
+        type: "spotifyPlayback",
+        data: playback,
+      });
+    }
   }
 
   setup(server) {
@@ -123,6 +253,13 @@ class WebSocketService {
         serverTime: new Date().toISOString(),
       },
       timestamp: new Date().toISOString(),
+    });
+
+    this.sendBootstrapStatus(clientId).catch((error) => {
+      logger.warn("Failed to send bootstrap status to client", {
+        clientId,
+        error: error?.message,
+      });
     });
 
     ws.on("close", (code, reason) => {
@@ -475,6 +612,40 @@ class WebSocketService {
     }
   }
 
+  async broadcastTwitchStatus(session = null) {
+    const status = await this.buildTwitchStatus(session);
+    this.broadcast({
+      v: 1,
+      type: "twitchAuthStatus",
+      data: status,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  async broadcastSpotifyStatus() {
+    const status = await this.buildSpotifyStatus();
+    this.broadcast({
+      v: 1,
+      type: "spotifyAuthStatus",
+      data: status,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  async broadcastSpotifyPlayback(snapshot = null) {
+    const payload = snapshot || (await this.buildSpotifyPlayback());
+    if (!payload) {
+      return;
+    }
+
+    this.broadcast({
+      v: 1,
+      type: "spotifyPlayback",
+      data: payload,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
   broadcastSongQueueUpdated(queue) {
     const message = {
       v: 1,
@@ -628,5 +799,10 @@ module.exports = {
   getStats: () => websocketService.getStats(),
   broadcastSongQueueUpdated: (queue) =>
     websocketService.broadcastSongQueueUpdated(queue),
+  broadcastTwitchStatus: (session) =>
+    websocketService.broadcastTwitchStatus(session),
+  broadcastSpotifyStatus: () => websocketService.broadcastSpotifyStatus(),
+  broadcastSpotifyPlayback: (snapshot) =>
+    websocketService.broadcastSpotifyPlayback(snapshot),
   _instance: websocketService,
 };

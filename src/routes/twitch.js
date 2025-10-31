@@ -2,6 +2,7 @@ const express = require("express");
 const passport = require("../middleware/twitchAuth");
 const { requireAuth } = require("../middleware/auth");
 const TokenService = require("../services/tokenService");
+const websocket = require("../services/websocket");
 const config = require("../config/config");
 const router = express.Router();
 
@@ -63,6 +64,15 @@ router.get("/auth/callback", async (req, res, next) => {
               // Still redirect, frontend will be able to use token fallback if configured
               return res.redirect("http://localhost:8084/?auth=partial");
             }
+
+            websocket
+              .broadcastTwitchStatus(req.session)
+              .catch((error) =>
+                logger.warn("Failed to broadcast Twitch status", {
+                  error: error?.message,
+                }),
+              );
+
             // Fire-and-forget: auto-connect OBS and initialize chat after successful auth
             // Do not await; keep redirect snappy
             try {
@@ -121,6 +131,15 @@ router.get("/auth/callback", async (req, res, next) => {
 router.get("/auth/logout", async (req, res) => {
   // Clear tokens from session
   await TokenService.clearTokens(req.session);
+
+  websocket
+    .broadcastTwitchStatus(req.session)
+    .catch((error) => {
+      const logger = require("../utils/logger");
+      logger.warn("Failed to broadcast Twitch status after logout", {
+        error: error?.message,
+      });
+    });
 
   req.logout(async (err) => {
     if (err) {
@@ -239,6 +258,13 @@ router.post("/refresh", async (req, res) => {
           });
         });
       }
+      websocket
+        .broadcastTwitchStatus(req.session)
+        .catch((error) =>
+          logger.warn("Failed to broadcast Twitch status after refresh", {
+            error: error?.message,
+          })
+        );
       return res.json({ ok: true, expiresAt: result.expiresAt || null });
     }
     return res.status(401).json({ code: "TWITCH_AUTH_REQUIRED" });
@@ -360,6 +386,13 @@ router.post("/auth/bootstrap", async (req, res) => {
             .status(500)
             .json({ bootstrapped: false, error: "session_save_failed" });
         }
+        websocket
+          .broadcastTwitchStatus(req.session)
+          .catch((error) =>
+            logger.warn("Failed to broadcast Twitch status after bootstrap", {
+              error: error?.message,
+            })
+          );
         return res.json({ bootstrapped: true, user: sessionUser });
       });
     });

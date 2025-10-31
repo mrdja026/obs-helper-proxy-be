@@ -1,12 +1,12 @@
 {
-  "accessToken": "BQCVnsXEjF6qvQlIOvWHIu_mVoZ_1ipjUAN8X2KAqF4j6u6l3npIjZAdB9jrWVJr0aCwCheSgo7qXxsnw0wLYFERZXlHmHFLfl7p64oJl1CEN9-MlBj9BAESpR6Hs5a2xdl5OhCdiTKtFOileZnTDtqOceYLKfyE4xqfMnb1UToh2tXGdGeaeSKwhy_MHfrdeEZOt6ftUHBpDZiSSVfwNFh2g9TLUL93GUL6eutxki01xukRP0_oRarwQHE",
-  "refreshToken": "AQB6oA0BMS-jUCAxmI13UbF-W29_amqh3vRquh9ZVJyo70xjjpq0ZWD0W2q6xqn-Jmm74CIqtMAlVJ5x2yU0RiMKBtbVyoG0NLi8-cswFeekeTggxsU3RTzOhrc42iADr3GVHA",
-  "expiresAt": "2025-10-27T10:59:56.062Z",
+  "accessToken": "BQDHG7GCIe1oRL2fRMTSWC9f-Xei1vK6egP1szUTF1LkkyaYXnvUIez2NEv6DaIFIRbCUKZ4UZqKvSUvoutM63BiLwNZOI_pe-MPQHcBV0wIJJRgLLadkGN9UOPcc9K9vfv_48VZGetu2GJ9QnioixeDEm-RC7CchPK-1YFAWvJ9Rd2W0MzDtWx4QYW1IOpFnCW4zjrZnjb53xGfG4vlUjZti7eNcd4lWTaZSiD8_Wvdewda4lALGxnyb7A",
+  "refreshToken": "AQAsU-i1BlO27Zf07MV1PdfoIpKbhnI2Mk3ajjlWcYCw0ERUEMC-htHZv7moYbAff5IbCHz0g2rFTMB3ywNKLsf1BGMEHE9mrKcRjRTLqa2L8UZAempky9DmZGYekxE6EeBM9Q",
+  "expiresAt": "2025-10-27T18:52:24.466Z",
   "scope": [
     "user-modify-playback-state",
     "user-read-playback-state"
   ],
   "tokenType": "Bearer",
   "user": null,
-  "storedAt": "2025-10-27T09:59:56.062Z"
+  "storedAt": "2025-10-27T17:52:24.466Z"
 }
